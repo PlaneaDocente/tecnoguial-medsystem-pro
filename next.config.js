@@ -4,10 +4,6 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
 
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-
   webpack: (config) => {
     config.watchOptions = {
       ignored: [

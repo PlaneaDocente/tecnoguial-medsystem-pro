@@ -37,6 +37,9 @@ import { generatePatientReport, downloadPDF } from '@/lib/pdf-generator';
 import { uploadPatientFile, deletePatientFile, formatFileSize } from '@/lib/file-upload';
 import type { Patient, PatientAllergy, PatientAntecedent, PatientChronicDisease, PatientFile, Consultation } from '@/lib/types';
 
+// ✅ CAMBIO 1: Tipo estricto para categorías de upload (línea ~44)
+type UploadCategory = 'other' | 'laboratory' | 'imaging' | 'clinical' | 'prescription';
+
 export default function PatientDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -55,7 +58,10 @@ export default function PatientDetailPage() {
   const [showChronicModal, setShowChronicModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadCategory, setUploadCategory] = useState('laboratory');
+  
+  // ✅ CAMBIO 2: useState tipado explícitamente (línea ~66)
+  const [uploadCategory, setUploadCategory] = useState<UploadCategory>('laboratory');
+  
   const [uploadNotes, setUploadNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -153,7 +159,7 @@ export default function PatientDetailPage() {
       const result = await uploadPatientFile(
         patientId,
         selectedFile,
-        uploadCategory,
+        uploadCategory, // ✅ Ahora tipado correctamente como UploadCategory
         user.id,
         uploadNotes
       );
@@ -661,9 +667,10 @@ export default function PatientDetailPage() {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1">Categoría</label>
+                {/* ✅ CAMBIO 3: onChange con casteo de tipo */}
                 <select
                   value={uploadCategory}
-                  onChange={(e) => setUploadCategory(e.target.value)}
+                  onChange={(e) => setUploadCategory(e.target.value as UploadCategory)}
                   className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700"
                 >
                   <option value="laboratory">Laboratorio</option>
