@@ -11,8 +11,7 @@ function createWindow() {
     },
   });
 
-  win.loadURL("http://localhost:3000");
-
+  win.loadURL("https://tu-proyecto.vercel.app");
   win.removeMenu();
 }
 

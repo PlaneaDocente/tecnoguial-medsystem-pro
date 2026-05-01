@@ -3,19 +3,15 @@
   "version": "1.0.0",
   "private": true,
   "main": "electron/main.js",
-
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-
     "electron": "electron .",
-
-    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && npx electron .\"",
-
-    "dist": "npm run build && electron-builder"
+    "dev:electron": "concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "dist": "npm run build && electron-builder",
+    "postinstall": "echo listo"
   },
-
   "build": {
     "appId": "com.tecnoguial.medsystem",
     "productName": "TecnoGuiAl MedSystem Pro",
@@ -33,7 +29,6 @@
       "icon": "electron/icon.ico"
     }
   },
-
   "dependencies": {
     "@emotion/is-prop-valid": "latest",
     "@hookform/resolvers": "^3.9.1",
@@ -94,17 +89,16 @@
     "vaul": "^0.9.6",
     "zod": "^3.24.1"
   },
-
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
     "concurrently": "^9.2.1",
     "electron": "^41.4.0",
     "electron-builder": "^26.8.1",
-    "eslint": "^9",
+    "eslint": "^8.57.1",
     "eslint-config-next": "14.2.5",
     "tailwindcss": "^4",
     "typescript": "^5",
