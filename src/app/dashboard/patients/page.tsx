@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -11,13 +11,10 @@ import {
   Users,
   Plus,
   Search,
-  Filter,
   MoreVertical,
   Phone,
   Mail,
-  Calendar,
   AlertTriangle,
-  X,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
@@ -30,24 +27,40 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { Patient } from '@/lib/types';
 
+// Extiende el tipo con el campo que agregamos manualmente
+interface PatientWithAllergies extends Patient {
+  allergiesCount: number;
+}
+
 export default function PatientsPage() {
   const { user } = useAuth();
-  const [patients, setPatients] = useState<Patient[]>([]);
+  const [patients, setPatients] = useState<PatientWithAllergies[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  // Debounce: input inmediato vs query aplicada a Supabase
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const pageSize = 10;
 
+  // Efecto de debounce: solo actualiza searchQuery después de 300ms sin escribir
   useEffect(() => {
-    if (user) {
-      fetchPatients();
-    }
-  }, [user, search, statusFilter, currentPage]);
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setCurrentPage(1); // reset a página 1 al cambiar búsqueda
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  const fetchPatients = async () => {
+  const fetchPatients = useCallback(async () => {
     if (!user) return;
+
+    setLoading(true);
+    setError(null);
 
     try {
       let query = supabase
@@ -56,8 +69,10 @@ export default function PatientsPage() {
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (search) {
-        query = query.or(`first_name.ilike.%${search}%,last_name.ilike.%${search}%,email.ilike.%${search}%,phone.ilike.%${search}%`);
+      if (searchQuery) {
+        query = query.or(
+          `first_name.ilike.%${searchQuery}%,last_name.ilike.%${searchQuery}%,email.ilike.%${searchQuery}%,phone.ilike.%${searchQuery}%`
+        );
       }
 
       if (statusFilter !== 'all') {
@@ -68,57 +83,106 @@ export default function PatientsPage() {
       const to = from + pageSize - 1;
       query = query.range(from, to);
 
-      const { data, count, error } = await query;
+      const { data, count, error: patientsError } = await query;
 
-      if (error) throw error;
+      if (patientsError) throw patientsError;
 
-      setPatients(data || []);
-      setTotalPages(Math.ceil((count || 0) / pageSize));
+      const total = count || 0;
+      setTotalPages(Math.max(1, Math.ceil(total / pageSize)));
 
-      // Fetch allergies count for each patient
-      const patientsWithAllergies = await Promise.all(
-        (data || []).map(async (patient) => {
-          const { count } = await supabase
-            .from('patient_allergies')
-            .select('*', { count: 'exact', head: true })
-            .eq('patient_id', patient.id);
-          return { ...patient, allergiesCount: count || 0 };
-        })
-      );
+      if (!data || data.length === 0) {
+        setPatients([]);
+        return;
+      }
 
-      setPatients(patientsWithAllergies);
-    } catch (error) {
-      console.error('Error fetching patients:', error);
+      // Batch: una sola query para contar alergias de todos los pacientes visibles
+      const patientIds = data.map((p) => p.id);
+      const { data: allergiesData, error: allergiesError } = await supabase
+        .from('patient_allergies')
+        .select('patient_id')
+        .in('patient_id', patientIds);
+
+      if (allergiesError) throw allergiesError;
+
+      // Mapeo de conteos
+      const counts = new Map<string, number>();
+      allergiesData?.forEach((a) => {
+        counts.set(a.patient_id, (counts.get(a.patient_id) || 0) + 1);
+      });
+
+      const merged: PatientWithAllergies[] = data.map((p) => ({
+        ...p,
+        allergiesCount: counts.get(p.id) || 0,
+      }));
+
+      setPatients(merged);
+    } catch (err: any) {
+      console.error('Error fetching patients:', err);
+      setError(err?.message || 'Error al cargar los pacientes');
+      setPatients([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, searchQuery, statusFilter, currentPage]);
+
+  // Fetch principal con protección contra memory leak
+  useEffect(() => {
+    let cancelled = false;
+
+    const run = async () => {
+      await fetchPatients();
+      if (cancelled) return;
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPatients]);
 
   const getAge = (birthDate: string | null) => {
     if (!birthDate) return 'N/A';
-    const today = new Date();
-    const birth = new Date(birthDate);
-    let age = today.getFullYear() - birth.getFullYear();
-    const m = today.getMonth() - birth.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
-      age--;
+    try {
+      const today = new Date();
+      const birth = new Date(birthDate);
+      if (isNaN(birth.getTime())) return 'N/A';
+      let age = today.getFullYear() - birth.getFullYear();
+      const m = today.getMonth() - birth.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) {
+        age--;
+      }
+      return `${age} años`;
+    } catch {
+      return 'N/A';
     }
-    return `${age} años`;
   };
 
   const getGenderLabel = (gender: string | null) => {
     const labels: Record<string, string> = {
       male: 'Masculino',
       female: 'Femenino',
-      other: 'Otro'
+      other: 'Otro',
     };
     return labels[gender || ''] || 'N/A';
   };
 
-  if (loading) {
+  if (loading && patients.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+        <AlertTriangle className="w-12 h-12 text-red-500" />
+        <p className="text-red-600 font-medium">{error}</p>
+        <Button onClick={() => fetchPatients()} variant="outline">
+          Reintentar
+        </Button>
       </div>
     );
   }
@@ -150,11 +214,8 @@ export default function PatientsPage() {
             <Input
               type="text"
               placeholder="Buscar por nombre, CURP, email o teléfono..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setCurrentPage(1);
-              }}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               className="pl-10"
             />
           </div>
@@ -183,15 +244,19 @@ export default function PatientsPage() {
             No hay pacientes registrados
           </h3>
           <p className="text-slate-500 dark:text-slate-400 mb-6">
-            Comienza agregando tu primer paciente
+            {searchQuery || statusFilter !== 'all'
+              ? 'Intenta con otros filtros de búsqueda'
+              : 'Comienza agregando tu primer paciente'}
           </p>
-          <Link
-            href="/patients/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Agregar Paciente
-          </Link>
+          {!searchQuery && statusFilter === 'all' && (
+            <Link
+              href="/patients/new"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              Agregar Paciente
+            </Link>
+          )}
         </Card>
       ) : (
         <Card className="overflow-hidden">
@@ -231,7 +296,8 @@ export default function PatientsPage() {
                         className="flex items-center gap-3"
                       >
                         <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold text-sm">
-                          {patient.first_name.charAt(0)}{patient.last_name.charAt(0)}
+                          {patient.first_name?.charAt(0) || '?'}
+                          {patient.last_name?.charAt(0) || '?'}
                         </div>
                         <div>
                           <p className="font-medium text-slate-900 dark:text-white hover:text-blue-600">
@@ -247,7 +313,7 @@ export default function PatientsPage() {
                       <div className="space-y-1">
                         <p className="text-sm text-slate-600 dark:text-slate-300 flex items-center gap-2">
                           <Phone className="w-3 h-3" />
-                          {patient.phone}
+                          {patient.phone || 'N/A'}
                         </p>
                         {patient.email && (
                           <p className="text-sm text-slate-500 dark:text-slate-400 flex items-center gap-2">
@@ -262,14 +328,14 @@ export default function PatientsPage() {
                         {getGenderLabel(patient.gender)}
                       </p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {patient.blood_type}
+                        {patient.blood_type || 'N/A'}
                       </p>
                     </td>
                     <td className="px-4 py-4">
-                      {(patient as unknown as { allergiesCount?: number }).allergiesCount && (patient as unknown as { allergiesCount?: number }).allergiesCount! > 0 ? (
-                        <Badge variant="destructive" className="flex items-center gap-1">
+                      {patient.allergiesCount > 0 ? (
+                        <Badge variant="destructive" className="flex items-center gap-1 w-fit">
                           <AlertTriangle className="w-3 h-3" />
-                          {(patient as unknown as { allergiesCount?: number }).allergiesCount}
+                          {patient.allergiesCount}
                         </Badge>
                       ) : (
                         <span className="text-sm text-slate-400">Sin alergias</span>
@@ -278,7 +344,11 @@ export default function PatientsPage() {
                     <td className="px-4 py-4">
                       <Badge
                         variant={patient.status === 'active' ? 'default' : 'secondary'}
-                        className={patient.status === 'active' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : ''}
+                        className={
+                          patient.status === 'active'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                            : ''
+                        }
                       >
                         {patient.status === 'active' ? 'Activo' : 'Inactivo'}
                       </Badge>
@@ -295,10 +365,14 @@ export default function PatientsPage() {
                             <Link href={`/patients/${patient.id}`}>Ver expediente</Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
-                            <Link href={`/consultations/new?patientId=${patient.id}`}>Nueva consulta</Link>
+                            <Link href={`/consultations/new?patientId=${patient.id}`}>
+                              Nueva consulta
+                            </Link>
                           </DropdownMenuItem>
                           <DropdownMenuItem asChild>
-                            <Link href={`/appointments/new?patientId=${patient.id}`}>Agendar cita</Link>
+                            <Link href={`/appointments/new?patientId=${patient.id}`}>
+                              Agendar cita
+                            </Link>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -319,7 +393,7 @@ export default function PatientsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
                 >
                   <ChevronLeft className="w-4 h-4" />
@@ -327,7 +401,7 @@ export default function PatientsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                   disabled={currentPage === totalPages}
                 >
                   <ChevronRight className="w-4 h-4" />
