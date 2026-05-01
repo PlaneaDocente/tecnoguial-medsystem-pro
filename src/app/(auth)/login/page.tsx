@@ -28,15 +28,15 @@ export default function LoginPage() {
     );
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
-      const { error } = await signIn(email, password);
+      const { error, message } = await signIn(email, password);
       if (error) {
-        setError('Credenciales inválidas. Por favor, intenta de nuevo.');
+        setError(message || 'Credenciales inválidas. Por favor, intenta de nuevo.');
       } else {
         router.push('/dashboard');
       }

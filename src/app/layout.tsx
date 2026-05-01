@@ -3,6 +3,7 @@ import { Inter, Roboto_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import GlobalClientEffects from "@/components/GlobalClientEffects";
+import PWARegister from '@/components/PWARegister';
 
 import "./globals.css";
 
@@ -34,24 +35,16 @@ export const viewport: Viewport = {
   maximumScale: 1,
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={`${inter.variable} ${mono.variable} antialiased`}>
         <Toaster />
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           {children}
           <GlobalClientEffects />
         </ThemeProvider>
+        <PWARegister />
       </body>
     </html>
   );

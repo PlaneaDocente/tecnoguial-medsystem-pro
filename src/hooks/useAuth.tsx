@@ -19,8 +19,8 @@ interface AuthContextType {
   session: Session | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string, role: string, specialty?: string) => Promise<{ error: Error | null }>;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signUp: (email: string, password: string, fullName: string, role: string, specialty?: string) => Promise<{ error: Error | null; message?: string }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null; message?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (data: Partial<Profile>) => Promise<{ error: Error | null }>;
 }
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await fetchProfile(session.user.id);
         } else {
           setProfile(null);
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
@@ -61,53 +61,123 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .maybeSingle();
 
-    if (data) {
-      setProfile(data as Profile);
+      if (error) {
+        console.error('Error fetching profile:', error);
+      }
+
+      if (data) {
+        setProfile(data as Profile);
+      } else {
+        setProfile(null);
+      }
+    } catch (err) {
+      console.error('fetchProfile exception:', err);
+      setProfile(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const signUp = async (email: string, password: string, fullName: string, role: string, specialty?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName,
-          role,
-          specialty,
+    try {
+      // 1. Crear usuario en Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            full_name: fullName,
+            role,
+            specialty: specialty || null,
+          },
+          emailRedirectTo: typeof window !== 'undefined' ? `${window.location.origin}/login` : undefined,
         },
-        emailRedirectTo: `${window.location.origin}/`,
-      },
-    });
-    return { error: error as Error | null };
+      });
+
+      if (authError) {
+        return { error: authError, message: authError.message };
+      }
+
+      if (!authData.user) {
+        return { error: new Error('No se pudo crear el usuario') };
+      }
+
+      // 2. Crear perfil manualmente (fallback si el trigger no existe)
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: authData.user.id,
+        email,
+        full_name: fullName,
+        role,
+        specialty: specialty || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+
+      if (profileError) {
+        console.error('Error creating profile:', profileError);
+        // No retornamos error para no bloquear el registro si auth sí funcionó
+      }
+
+      return { error: null, message: 'Registro exitoso. Revisa tu correo para confirmar tu cuenta.' };
+    } catch (err: any) {
+      return { error: err, message: err?.message || 'Error en el registro' };
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    return { error: error as Error | null };
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        // Detectar específicamente si el email no está confirmado
+        if (error.message.includes('Email not confirmed') || error.message.includes('not confirmed')) {
+          return {
+            error,
+            message: 'Tu correo no ha sido confirmado. Revisa tu bandeja de entrada o spam.',
+          };
+        }
+        if (error.message.includes('Invalid login credentials')) {
+          return {
+            error,
+            message: 'Correo o contraseña incorrectos. Si no tienes cuenta, regístrate primero.',
+          };
+        }
+        return { error, message: error.message };
+      }
+
+      if (data.user) {
+        await fetchProfile(data.user.id);
+      }
+
+      return { error: null };
+    } catch (err: any) {
+      return { error: err, message: err?.message || 'Error al iniciar sesión' };
+    }
   };
 
   const signOut = async () => {
     await supabase.auth.signOut();
     setProfile(null);
+    setUser(null);
+    setSession(null);
   };
 
   const updateProfile = async (data: Partial<Profile>) => {
-    if (!user) return { error: new Error('No user') };
+    if (!user) return { error: new Error('No hay usuario activo') };
 
     const { error } = await supabase
       .from('profiles')
-      .update(data)
+      .update({ ...data, updated_at: new Date().toISOString() })
       .eq('id', user.id);
 
     if (!error) {

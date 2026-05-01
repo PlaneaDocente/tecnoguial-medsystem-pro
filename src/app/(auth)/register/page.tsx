@@ -41,7 +41,7 @@ export default function RegisterPage() {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -58,7 +58,7 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const { error } = await signUp(
+      const { error, message } = await signUp(
         formData.email,
         formData.password,
         formData.fullName,
@@ -67,12 +67,9 @@ export default function RegisterPage() {
       );
 
       if (error) {
-        setError('El correo ya está registrado o hay un error. Por favor, intenta de nuevo.');
+        setError(message || 'El correo ya está registrado o hay un error.');
       } else {
         setSuccess(true);
-        setTimeout(() => {
-          router.push('/login');
-        }, 3000);
       }
     } catch {
       setError('Ocurrió un error. Por favor, intenta de nuevo.');
