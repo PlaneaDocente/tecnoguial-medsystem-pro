@@ -6,12 +6,15 @@ import { User, Session } from '@supabase/supabase-js';
 
 interface Profile {
   id: string;
-  email: string;
-  full_name: string;
-  role: 'doctor' | 'psicologo' | 'admin';
+  email: string | null;
+  full_name: string | null;
+  name: string | null;
+  role: string | null;
   specialty: string | null;
   phone: string | null;
   avatar_url: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 }
 
 interface AuthContextType {
@@ -87,7 +90,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (email: string, password: string, fullName: string, role: string, specialty?: string) => {
     try {
-      // 1. Crear usuario en Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -109,11 +111,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return { error: new Error('No se pudo crear el usuario') };
       }
 
-      // 2. Crear perfil manualmente (fallback si el trigger no existe)
+      // El trigger debería haber creado el perfil automáticamente.
+      // Este fallback solo corre si el trigger no existe.
       const { error: profileError } = await supabase.from('profiles').upsert({
         id: authData.user.id,
         email,
         full_name: fullName,
+        name: fullName, // compatibilidad con columna 'name' si existe
         role,
         specialty: specialty || null,
         created_at: new Date().toISOString(),
@@ -122,10 +126,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (profileError) {
         console.error('Error creating profile:', profileError);
-        // No retornamos error para no bloquear el registro si auth sí funcionó
       }
 
-      return { error: null, message: 'Registro exitoso. Revisa tu correo para confirmar tu cuenta.' };
+      return { error: null, message: 'Registro exitoso. Ahora puedes iniciar sesión.' };
     } catch (err: any) {
       return { error: err, message: err?.message || 'Error en el registro' };
     }
@@ -139,7 +142,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (error) {
-        // Detectar específicamente si el email no está confirmado
         if (error.message.includes('Email not confirmed') || error.message.includes('not confirmed')) {
           return {
             error,
@@ -149,7 +151,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (error.message.includes('Invalid login credentials')) {
           return {
             error,
-            message: 'Correo o contraseña incorrectos. Si no tienes cuenta, regístrate primero.',
+            message: 'Correo o contraseña incorrectos.',
           };
         }
         return { error, message: error.message };
