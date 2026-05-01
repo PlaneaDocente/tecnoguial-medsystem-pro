@@ -8,7 +8,6 @@ export default function HomePage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect to dashboard (auth check happens in layout)
     router.replace('/dashboard');
   }, [router]);
 
