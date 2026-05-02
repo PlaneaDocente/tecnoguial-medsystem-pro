@@ -32,7 +32,7 @@ import {
 } from 'recharts';
 
 // ==========================================
-// INTERFACES LOCALES (no dependen de @/lib/types)
+// INTERFACES LOCALES
 // ==========================================
 interface Patient {
   id: string;
@@ -73,7 +73,7 @@ interface StatsData {
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
 
 // ==========================================
-// COMPONENTE PRINCIPAL
+// COMPONENTE
 // ==========================================
 export default function DashboardPage() {
   const { user, profile } = useAuth();
@@ -93,16 +93,12 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    } else {
-      setLoading(false);
-    }
+    if (user) fetchDashboardData();
+    else setLoading(false);
   }, [user]);
 
   const fetchDashboardData = async () => {
     if (!user) return;
-
     try {
       setError(null);
       const today = new Date().toISOString().split('T')[0];
@@ -110,83 +106,43 @@ export default function DashboardPage() {
       const firstDayLastMonth = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0];
       const lastDayLastMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0];
 
-      // Fetch total patients
       const { count: totalPatients, error: errTotal } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
+        .from('patients').select('*', { count: 'exact', head: true }).eq('user_id', user.id);
       if (errTotal) console.warn('Error total patients:', errTotal.message);
 
-      // Fetch patients this month
       const { count: newPatients, error: errNew } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', firstDayOfMonth);
-
+        .from('patients').select('*', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', firstDayOfMonth);
       if (errNew) console.warn('Error new patients:', errNew.message);
 
-      // Fetch patients last month
       const { count: lastMonthPatients, error: errLast } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', firstDayLastMonth)
-        .lte('created_at', lastDayLastMonth);
-
+        .from('patients').select('*', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', firstDayLastMonth).lte('created_at', lastDayLastMonth);
       if (errLast) console.warn('Error last month:', errLast.message);
 
-      // Calculate change
       const current = newPatients || 0;
       const previous = lastMonthPatients || 0;
       let change = 0;
       if (previous > 0) change = Math.round(((current - previous) / previous) * 100);
       else if (current > 0) change = 100;
 
-      // Appointments today
       const { data: appointmentsToday, error: errApp } = await supabase
-        .from('appointments')
-        .select('*, patient:patients(first_name, last_name)')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .in('status', ['pending', 'confirmed'])
-        .order('start_time', { ascending: true });
-
+        .from('appointments').select('*, patient:patients(first_name, last_name)').eq('user_id', user.id).eq('date', today).in('status', ['pending', 'confirmed']).order('start_time', { ascending: true });
       if (errApp) console.warn('Error appointments:', errApp.message);
 
-      // Recent patients
       const { data: recent, error: errRecent } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
+        .from('patients').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(5);
       if (errRecent) console.warn('Error recent:', errRecent.message);
 
-      // ==========================================
-      // FIX CRÍTICO: Consultations como any[] para evitar 'never'
-      // ==========================================
+      // FIX: consultations como any para evitar 'never'
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
       const { data: consultationsRaw, error: errConsult } = await (supabase as any)
-        .from('consultations')
-        .select('type')
-        .eq('user_id', user.id)
-        .gte('consultation_date', thirtyDaysAgo.toISOString());
-
+        .from('consultations').select('type').eq('user_id', user.id).gte('consultation_date', thirtyDaysAgo.toISOString());
       if (errConsult) console.warn('Error consultations:', errConsult.message);
 
-      // Tratar explícitamente como array de objetos any
       const consultationsArray: any[] = consultationsRaw || [];
       const typeCount: Record<string, number> = {};
-      
       consultationsArray.forEach((c: any) => {
-        if (c && typeof c.type === 'string') {
-          typeCount[c.type] = (typeCount[c.type] || 0) + 1;
-        }
+        if (c && typeof c.type === 'string') typeCount[c.type] = (typeCount[c.type] || 0) + 1;
       });
 
       const consultationTypes = [
@@ -196,55 +152,29 @@ export default function DashboardPage() {
         { name: 'Urgencia', value: typeCount.urgencia || 0 }
       ];
 
-      // Evolution last 6 months
       const evolution: { month: string; count: number }[] = [];
       for (let i = 5; i >= 0; i--) {
         const date = new Date();
         date.setMonth(date.getMonth() - i);
         const monthStart = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
         const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString();
-
         const { count, error: errEvo } = await supabase
-          .from('patients')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', user.id)
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd);
-
+          .from('patients').select('*', { count: 'exact', head: true }).eq('user_id', user.id).gte('created_at', monthStart).lte('created_at', monthEnd);
         if (errEvo) console.warn('Error evolution:', errEvo.message);
-
-        evolution.push({
-          month: date.toLocaleDateString('es-ES', { month: 'short' }),
-          count: count || 0
-        });
+        evolution.push({ month: date.toLocaleDateString('es-ES', { month: 'short' }), count: count || 0 });
       }
 
-      // Alerts
       const alertList: DashboardAlert[] = [];
-      if (!appointmentsToday || appointmentsToday.length === 0) {
-        alertList.push({ type: 'info', title: 'Sin citas hoy', description: 'No tienes citas programadas para hoy' });
-      }
-      if (!recent || recent.length < 5) {
-        alertList.push({ type: 'warning', title: 'Pocos pacientes nuevos', description: 'Considera dar a conocer tus servicios' });
-      }
-      if ((totalPatients || 0) > 0) {
-        alertList.push({ type: 'warning', title: 'Seguimiento pendiente', description: 'Hay pacientes que podrían requerir seguimiento' });
-      }
+      if (!appointmentsToday || appointmentsToday.length === 0) alertList.push({ type: 'info', title: 'Sin citas hoy', description: 'No tienes citas programadas para hoy' });
+      if (!recent || recent.length < 5) alertList.push({ type: 'warning', title: 'Pocos pacientes nuevos', description: 'Considera dar a conocer tus servicios' });
+      if ((totalPatients || 0) > 0) alertList.push({ type: 'warning', title: 'Seguimiento pendiente', description: 'Hay pacientes que podrían requerir seguimiento' });
 
-      setStats({
-        totalPatients: totalPatients || 0,
-        patientsChange: change,
-        appointmentsToday: appointmentsToday?.length || 0,
-        monthlyRevenue: 0,
-        newPatients: newPatients || 0
-      });
-
+      setStats({ totalPatients: totalPatients || 0, patientsChange: change, appointmentsToday: appointmentsToday?.length || 0, monthlyRevenue: 0, newPatients: newPatients || 0 });
       setTodayAppointments(appointmentsToday || []);
       setRecentPatients(recent || []);
       setConsultationsByType(consultationTypes);
       setPatientsEvolution(evolution);
       setAlerts(alertList);
-
     } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
       setError(error?.message || 'Error al cargar datos');
@@ -269,12 +199,7 @@ export default function DashboardPage() {
 
   const getConsultationTypeLabel = (type?: string) => {
     if (!type) return 'Consulta';
-    const labels: Record<string, string> = {
-      general: 'Consulta General',
-      seguimiento: 'Seguimiento',
-      urgencia: 'Urgencia',
-      psicologica: 'Psicológica'
-    };
+    const labels: Record<string, string> = { general: 'Consulta General', seguimiento: 'Seguimiento', urgencia: 'Urgencia', psicologica: 'Psicológica' };
     return labels[type] || type;
   };
 
@@ -290,10 +215,7 @@ export default function DashboardPage() {
   };
 
   const getStatusLabel = (status?: string) => {
-    const labels: Record<string, string> = {
-      pending: 'Pendiente', confirmed: 'Confirmada', in_progress: 'En curso',
-      completed: 'Completada', cancelled: 'Cancelada'
-    };
+    const labels: Record<string, string> = { pending: 'Pendiente', confirmed: 'Confirmada', in_progress: 'En curso', completed: 'Completada', cancelled: 'Cancelada' };
     return labels[status || 'pending'] || 'Pendiente';
   };
 
@@ -307,7 +229,7 @@ export default function DashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
+      <div className="flex items-center justify-center h-full">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
       </div>
     );
@@ -315,45 +237,32 @@ export default function DashboardPage() {
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center h-96 space-y-4">
+      <div className="flex flex-col items-center justify-center h-full space-y-4">
         <AlertTriangle className="w-12 h-12 text-red-500" />
         <p className="text-red-600 font-medium">{error}</p>
-        <button onClick={fetchDashboardData} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
-          Reintentar
-        </button>
+        <button onClick={fetchDashboardData} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">Reintentar</button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {getGreeting()}, {getUserFirstName()}
-          </h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Aquí está el resumen de tu actividad
-          </p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{getGreeting()}, Dr.</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Aquí está el resumen de tu actividad</p>
         </div>
-        <div className="flex gap-3">
-          <Link href="/patients/new" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
-            <Plus className="w-4 h-4" />
-            Nuevo Paciente
-          </Link>
-        </div>
+        <Link href="/patients/new" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors shadow-sm">
+          <Plus className="w-4 h-4" /> Nuevo Paciente
+        </Link>
       </div>
 
       {/* Alerts */}
       {alerts.length > 0 && (
         <div className="space-y-2">
           {alerts.map((alert, index) => (
-            <div key={index} className={`flex items-start gap-3 p-4 rounded-lg ${
-              alert.type === 'warning'
-                ? 'bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300'
-                : 'bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300'
-            }`}>
+            <div key={index} className={`flex items-start gap-3 p-4 rounded-lg ${alert.type === 'warning' ? 'bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-300' : 'bg-blue-50 border border-blue-200 text-blue-800 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300'}`}>
               {alert.type === 'warning' ? <AlertTriangle className="w-5 h-5 mt-0.5 flex-shrink-0" /> : <Info className="w-5 h-5 mt-0.5 flex-shrink-0" />}
               <div>
                 <p className="font-semibold text-sm">{alert.title}</p>
@@ -384,9 +293,7 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Citas Hoy</p>
               <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{stats.appointmentsToday}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {todayAppointments.length > 0 ? 'Próxima a las ' + formatTime(todayAppointments[0]?.start_time) : 'Sin citas programadas'}
-              </p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{todayAppointments.length > 0 ? 'Próxima a las ' + formatTime(todayAppointments[0]?.start_time) : 'Sin citas programadas'}</p>
             </div>
             <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
               <Calendar className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -414,12 +321,8 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Plan Actual</p>
-              <p className="text-xl font-bold text-slate-900 dark:text-white mt-1 capitalize">
-                {profile?.role === 'psicologo' ? 'Profesional' : 'Básico'}
-              </p>
-              <Link href="/billing" className="text-sm text-blue-600 hover:text-blue-700 mt-1 inline-flex items-center gap-1 transition-colors">
-                Actualizar <ArrowRight className="w-3 h-3" />
-              </Link>
+              <p className="text-xl font-bold text-slate-900 dark:text-white mt-1 capitalize">{profile?.role === 'psicologo' ? 'Profesional' : 'Básico'}</p>
+              <Link href="/billing" className="text-sm text-blue-600 hover:text-blue-700 mt-1 inline-flex items-center gap-1 transition-colors">Actualizar <ArrowRight className="w-3 h-3" /></Link>
             </div>
             <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
               <DollarSign className="w-6 h-6 text-orange-600 dark:text-orange-400" />
@@ -451,9 +354,7 @@ export default function DashboardPage() {
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie data={consultationsByType} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={2} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} labelLine={false}>
-                  {consultationsByType.map((_, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
+                  {consultationsByType.map((_, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(value: number, name: string) => [value, name]} contentStyle={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px' }} />
               </PieChart>
@@ -473,9 +374,7 @@ export default function DashboardPage() {
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">
               <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>No tienes citas programadas para hoy</p>
-              <Link href="/appointments" className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700 transition-colors">
-                <Plus className="w-4 h-4" /> Agendar nueva cita
-              </Link>
+              <Link href="/appointments" className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700 transition-colors"><Plus className="w-4 h-4" /> Agendar nueva cita</Link>
             </div>
           ) : (
             <div className="space-y-3">
@@ -506,9 +405,7 @@ export default function DashboardPage() {
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">
               <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p>No hay pacientes registrados</p>
-              <Link href="/patients/new" className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700 transition-colors">
-                <Plus className="w-4 h-4" /> Agregar paciente
-              </Link>
+              <Link href="/patients/new" className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700 transition-colors"><Plus className="w-4 h-4" /> Agregar paciente</Link>
             </div>
           ) : (
             <div className="space-y-3">
