@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -24,6 +24,98 @@ import { toast } from 'sonner';
 
 type AssistantTab = 'diagnosis' | 'summary' | 'notes' | 'search';
 
+interface DiseaseSuggestion {
+  id: string;
+  name: string;
+  cie10_code?: string;
+  description?: string;
+  typical_symptoms?: string[];
+  score: number;
+}
+
+interface SearchResultItem {
+  type: 'medication' | 'disease';
+  data: Record<string, unknown>;
+}
+
+const CONSULTATION_TEMPLATES: Record<string, string> = {
+  general: `**NOTA DE CONSULTA GENERAL**
+
+Fecha: {{date}}
+Paciente: {{patient}}
+
+**SUBJETIVO:**
+Paciente refiere...
+
+**OBJETIVO:**
+Exploración física general...
+Signos vitales: PA ___/___ mmHg, FC ___ lpm, T° ___ °C
+
+**DIAGNÓSTICO:**
+1.
+
+**PLAN:**
+- Estudios complementarios:
+- Tratamiento:
+- Seguimiento:`,
+
+  seguimiento: `**NOTA DE EVOLUCIÓN**
+
+Fecha: {{date}}
+Paciente: {{patient}}
+
+**EVOLUCIÓN:**
+Paciente regresa para seguimiento. Se evalúa respuesta al tratamiento...
+
+**EXPLORACIÓN:**
+...
+
+**DIAGNÓSTICO:**
+...
+
+**PLAN:**
+- Continuar/modificar tratamiento actual
+- Próxima cita:`,
+
+  urgencia: `**NOTA DE URGENCIA**
+
+Fecha: {{date}}
+Hora: {{time}}
+Paciente: {{patient}}
+
+**MOTIVO DE URGENCIA:**
+...
+
+**ESTADO ACTUAL:**
+...
+
+**ATENCIÓN INMEDIATA:**
+...
+
+**DERIVACIÓN:**
+...`,
+
+  psicologica: `**NOTA PSICOLÓGICA**
+
+Fecha: {{date}}
+Paciente: {{patient}}
+
+**ESTADO EMOCIONAL:**
+Escala 1-10: ___
+
+**ÁREA MOTIVA:**
+...
+
+**TÉCNICAS APLICADAS:**
+...
+
+**INTERVENCIÓN:**
+...
+
+**TAREAS PARA EL PACIENTE:**
+...`
+};
+
 export default function AIAssistantPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<AssistantTab>('diagnosis');
@@ -32,7 +124,7 @@ export default function AIAssistantPage() {
 
   // Diagnosis state
   const [symptoms, setSymptoms] = useState('');
-  const [diagnosisSuggestions, setDiagnosisSuggestions] = useState<any[]>([]);
+  const [diagnosisSuggestions, setDiagnosisSuggestions] = useState<DiseaseSuggestion[]>([]);
 
   // Summary state
   const [notes, setNotes] = useState('');
@@ -45,74 +137,97 @@ export default function AIAssistantPage() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
 
-  const handleDiagnosis = async () => {
+  const handleDiagnosis = useCallback(async () => {
     if (!symptoms.trim()) {
       toast.error('Por favor, ingresa los síntomas');
       return;
     }
+    if (!user) {
+      toast.error('Debes iniciar sesión');
+      return;
+    }
+
     setLoading(true);
+    setDiagnosisSuggestions([]);
 
     try {
-      // Simulate AI diagnosis based on symptoms
-      const symptomList = symptoms.toLowerCase().split(',').map(s => s.trim());
+      const symptomList = symptoms.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
 
-      const { data: diseases } = await supabase
+      const { data: diseases, error } = await supabase
         .from('diseases_catalog')
         .select('*')
         .eq('is_active', true)
-        .limit(20);
+        .limit(50);
 
-      const suggestions = diseases?.map(disease => {
-        let score = 0;
-        const diseaseSymptoms = disease.typical_symptoms?.map((s: string) => s.toLowerCase()) || [];
-        symptomList.forEach(symptom => {
-          if (diseaseSymptoms.some((ds: string) => ds.includes(symptom) || symptom.includes(ds))) {
-            score += 1;
-          }
-        });
-        return { ...disease, score };
-      })
+      if (error) throw error;
+
+      const suggestions: DiseaseSuggestion[] = (diseases || [])
+        .map((disease: Record<string, unknown>) => {
+          let score = 0;
+          const diseaseSymptoms = Array.isArray(disease.typical_symptoms)
+            ? disease.typical_symptoms.map((s: unknown) => String(s).toLowerCase())
+            : [];
+
+          symptomList.forEach(symptom => {
+            if (diseaseSymptoms.some((ds: string) => ds.includes(symptom) || symptom.includes(ds))) {
+              score += 1;
+            }
+          });
+
+          return {
+            id: String(disease.id),
+            name: String(disease.name || ''),
+            cie10_code: disease.cie10_code ? String(disease.cie10_code) : undefined,
+            description: disease.description ? String(disease.description) : undefined,
+            typical_symptoms: diseaseSymptoms,
+            score
+          };
+        })
         .filter(d => d.score > 0)
         .sort((a, b) => b.score - a.score)
-        .slice(0, 5) || [];
+        .slice(0, 5);
 
       setDiagnosisSuggestions(suggestions);
 
-      // Log the suggestion
-      await supabase.from('ai_suggestions_log').insert({
-        user_id: user?.id,
+      // Log async sin bloquear UI - usar .select() antes de .then()
+      supabase.from('ai_suggestions_log').insert({
+        user_id: user.id,
         suggestion_type: 'diagnosis',
         input_data: { symptoms },
         output_data: { suggestions: suggestions.map(s => s.name) }
-      });
+      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
 
       if (suggestions.length === 0) {
-        toast.info('No se encontraron diagnósticos suggestivos para los síntomas ingresados');
+        toast.info('No se encontraron diagnósticos sugestivos para los síntomas ingresados');
       }
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('Error al generar sugerencias');
+      console.error('Error en diagnóstico asistido:', error);
+      toast.error('Error al generar sugerencias de diagnóstico');
     } finally {
       setLoading(false);
     }
-  };
+  }, [symptoms, user]);
 
-  const handleGenerateSummary = async () => {
+  const handleGenerateSummary = useCallback(async () => {
     if (!notes.trim()) {
       toast.error('Por favor, ingresa las notas de la consulta');
       return;
     }
+    if (!user) {
+      toast.error('Debes iniciar sesión');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      // Simulate AI summary generation
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1200));
 
       const summary = `**RESUMEN DE CONSULTA**
 
-**Motivo:** ${notes.substring(0, 100)}...
+**Motivo:** ${notes.substring(0, 120)}${notes.length > 120 ? '...' : ''}
 
 **Hallazgos:**
 - Paciente consciente y orientado
@@ -130,170 +245,124 @@ export default function AIAssistantPage() {
 
       setGeneratedSummary(summary);
 
-      await supabase.from('ai_suggestions_log').insert({
-        user_id: user?.id,
+      // Log async sin bloquear UI - usar .select() antes de .then()
+      supabase.from('ai_suggestions_log').insert({
+        user_id: user.id,
         suggestion_type: 'summary',
-        input_data: { notes },
-        output_data: { summary }
-      });
+        input_data: { notes: notes.substring(0, 500) },
+        output_data: { summary: summary.substring(0, 500) }
+      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error al generar resumen:', error);
       toast.error('Error al generar resumen');
     } finally {
       setLoading(false);
     }
-  };
+  }, [notes, user]);
 
-  const handleGenerateNote = async () => {
+  const handleGenerateNote = useCallback(async () => {
+    if (!user) {
+      toast.error('Debes iniciar sesión');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const templates: Record<string, string> = {
-        general: `**NOTA DE CONSULTA GENERAL**
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('es-ES');
+      const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+      const patientStr = patientInfo.trim() || '[Nombre del paciente]';
 
-Fecha: ${new Date().toLocaleDateString('es-ES')}
-Paciente: ${patientInfo || '[Nombre del paciente]'}
+      let template = CONSULTATION_TEMPLATES[consultationType] || CONSULTATION_TEMPLATES.general;
+      template = template
+        .replace(/{{date}}/g, dateStr)
+        .replace(/{{time}}/g, timeStr)
+        .replace(/{{patient}}/g, patientStr);
 
-**SUBJETIVO:**
-Paciente refiere...
+      setGeneratedNote(template);
 
-**OBJETIVO:**
-Exploración física general...
-Signos vitales: PA ___/___ mmHg, FC ___ lpm, T° ___ °C
-
-**DIAGNÓSTICO:**
-1.
-
-**PLAN:**
-- Estudios complementarios:
-- Tratamiento:
-- Seguimiento:`,
-
-        seguimiento: `**NOTA DE EVOLUCIÓN**
-
-Fecha: ${new Date().toLocaleDateString('es-ES')}
-Paciente: ${patientInfo || '[Nombre del paciente]'}
-
-**EVOLUCIÓN:**
-Paciente regresa para seguimiento. Se evalúa respuesta al tratamiento...
-
-**EXPLORACIÓN:**
-...
-
-**DIAGNÓSTICO:**
-...
-
-**PLAN:**
-- Continuar/modificar tratamiento actual
-- Próxima cita:`,
-
-        urgencia: `**NOTA DE URGENCIA**
-
-Fecha: ${new Date().toLocaleDateString('es-ES')}
-Hora: ${new Date().toLocaleTimeString('es-ES')}
-Paciente: ${patientInfo || '[Nombre del paciente]'}
-
-**MOTIVO DE URGENCIA:**
-...
-
-**ESTADO ACTUAL:**
-...
-
-**ATENCIÓN INMEDIATA:**
-...
-
-**DERIVACIÓN:**
-...`,
-
-        psicologica: `**NOTA PSICOLÓGICA**
-
-Fecha: ${new Date().toLocaleDateString('es-ES')}
-Paciente: ${patientInfo || '[Nombre del paciente]'}
-
-**ESTADO EMOCIONAL:**
-Escala 1-10: ___
-
-**ÁREA MOTIVA:**
-...
-
-**TÉCNICAS APLICADAS:**
-...
-
-**INTERVENCIÓN:**
-...
-
-**TAREAS PARA EL PACIENTE:**
-...`
-      };
-
-      setGeneratedNote(templates[consultationType] || templates.general);
-
-      await supabase.from('ai_suggestions_log').insert({
-        user_id: user?.id,
+      // Log async sin bloquear UI - usar .select() antes de .then()
+      supabase.from('ai_suggestions_log').insert({
+        user_id: user.id,
         suggestion_type: 'notes',
-        input_data: { type: consultationType, patientInfo },
-        output_data: { note: templates[consultationType] }
-      });
+        input_data: { type: consultationType, patientInfo: patientStr },
+        output_data: { noteType: consultationType }
+      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Error al generar nota:', error);
       toast.error('Error al generar nota');
     } finally {
       setLoading(false);
     }
-  };
+  }, [consultationType, patientInfo, user]);
 
-  const handleSearch = async () => {
+  const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
-      toast.error('Por favor, ingresa una búsqueda');
+      toast.error('Por favor, ingresa un término de búsqueda');
       return;
     }
+
     setLoading(true);
+    setSearchResults([]);
 
     try {
-      const { data: medications } = await supabase
-        .from('medications_catalog')
-        .select('*')
-        .eq('is_active', true)
-        .or(`generic_name.ilike.%${searchQuery}%,active_ingredient.ilike.%${searchQuery}%`)
-        .limit(5);
+      const query = searchQuery.trim();
 
-      const { data: diseases } = await supabase
-        .from('diseases_catalog')
-        .select('*')
-        .eq('is_active', true)
-        .or(`name.ilike.%${searchQuery}%,description.ilike.%${searchQuery}%`)
-        .limit(5);
-
-      setSearchResults([
-        ...(medications?.map(m => ({ type: 'medication', data: m })) || []),
-        ...(diseases?.map(d => ({ type: 'disease', data: d })) || [])
+      const [medicationsRes, diseasesRes] = await Promise.all([
+        supabase
+          .from('medications_catalog')
+          .select('*')
+          .eq('is_active', true)
+          .or(`generic_name.ilike.%${query}%,active_ingredient.ilike.%${query}%`)
+          .limit(5),
+        supabase
+          .from('diseases_catalog')
+          .select('*')
+          .eq('is_active', true)
+          .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
+          .limit(5)
       ]);
 
-      if (!medications?.length && !diseases?.length) {
-        toast.info('No se encontraron resultados');
+      if (medicationsRes.error) console.error('Error buscando medicamentos:', medicationsRes.error);
+      if (diseasesRes.error) console.error('Error buscando enfermedades:', diseasesRes.error);
+
+      const results: SearchResultItem[] = [
+        ...(medicationsRes.data || []).map(m => ({ type: 'medication' as const, data: m })),
+        ...(diseasesRes.data || []).map(d => ({ type: 'disease' as const, data: d }))
+      ];
+
+      setSearchResults(results);
+
+      if (results.length === 0) {
+        toast.info('No se encontraron resultados en el catálogo');
       }
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('Error en la búsqueda');
+      console.error('Error en búsqueda:', error);
+      toast.error('Error al realizar la búsqueda');
     } finally {
       setLoading(false);
     }
-  };
+  }, [searchQuery]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    toast.success('Copiado al portapapeles');
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const copyToClipboard = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success('Copiado al portapapeles');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      toast.error('No se pudo copiar al portapapeles');
+    }
+  }, []);
 
   const tabs = [
-    { id: 'diagnosis', label: 'Diagnóstico', icon: Lightbulb },
-    { id: 'summary', label: 'Resumen', icon: FileText },
-    { id: 'notes', label: 'Notas', icon: Sparkles },
-    { id: 'search', label: 'Búsqueda', icon: Search }
+    { id: 'diagnosis' as AssistantTab, label: 'Diagnóstico', icon: Lightbulb },
+    { id: 'summary' as AssistantTab, label: 'Resumen', icon: FileText },
+    { id: 'notes' as AssistantTab, label: 'Notas', icon: Sparkles },
+    { id: 'search' as AssistantTab, label: 'Búsqueda', icon: Search }
   ] as const;
 
   return (
@@ -308,7 +377,7 @@ Escala 1-10: ___
       {/* Disclaimer */}
       <Card className="p-4 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
         <div className="flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
               Aviso Importante
@@ -325,17 +394,19 @@ Escala 1-10: ___
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
         {tabs.map(tab => {
           const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                activeTab === tab.id
+                isActive
                   ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
+              aria-pressed={isActive}
             >
-              <Icon className="w-4 h-4" />
+              <Icon className="w-4 h-4" aria-hidden="true" />
               {tab.label}
             </button>
           );
@@ -347,11 +418,11 @@ Escala 1-10: ___
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <Lightbulb className="w-5 h-5 text-yellow-500" />
+              <Lightbulb className="w-5 h-5 text-yellow-500" aria-hidden="true" />
               Diagnóstico Asistido
             </h3>
             <p className="text-sm text-slate-500 mb-4">
-              Ingresa los síntomas separados por comas y la IA te sugerirá posibles diagnósticos.
+              Ingresa los síntomas separados por comas y el sistema buscará coincidencias en el catálogo.
             </p>
             <Textarea
               value={symptoms}
@@ -360,15 +431,15 @@ Escala 1-10: ___
               rows={4}
               className="mb-4"
             />
-            <Button onClick={handleDiagnosis} disabled={loading} className="w-full gap-2">
+            <Button onClick={handleDiagnosis} disabled={loading || !symptoms.trim()} className="w-full gap-2">
               {loading ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                   Analizando...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
+                  <Sparkles className="w-4 h-4" aria-hidden="true" />
                   Generar Diagnósticos
                 </>
               )}
@@ -380,32 +451,37 @@ Escala 1-10: ___
               Posibles Diagnósticos
             </h3>
             {diagnosisSuggestions.length === 0 ? (
-              <p className="text-center text-slate-500 py-8">
-                Ingresa síntomas para ver sugerencias
-              </p>
+              <div className="text-center text-slate-500 py-8">
+                <Bot className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
+                <p>Ingresa síntomas para ver sugerencias</p>
+              </div>
             ) : (
               <div className="space-y-3">
-                {diagnosisSuggestions.map((suggestion, idx) => (
-                  <div
-                    key={suggestion.id}
-                    className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="font-medium text-slate-900 dark:text-white">
-                        {suggestion.name}
-                      </h4>
-                      <Badge variant="outline">
-                        {Math.round((suggestion.score / Math.max(...diagnosisSuggestions.map(s => s.score))) * 100)}% match
-                      </Badge>
+                {diagnosisSuggestions.map((suggestion, idx) => {
+                  const maxScore = Math.max(...diagnosisSuggestions.map(s => s.score), 1);
+                  const matchPercent = Math.round((suggestion.score / maxScore) * 100);
+                  return (
+                    <div
+                      key={suggestion.id}
+                      className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium text-slate-900 dark:text-white">
+                          {idx + 1}. {suggestion.name}
+                        </h4>
+                        <Badge variant="outline">{matchPercent}% coincidencia</Badge>
+                      </div>
+                      {suggestion.cie10_code && (
+                        <p className="text-xs text-slate-500 mb-2">CIE-10: {suggestion.cie10_code}</p>
+                      )}
+                      {suggestion.description && (
+                        <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
+                          {suggestion.description}
+                        </p>
+                      )}
                     </div>
-                    {suggestion.cie10_code && (
-                      <p className="text-xs text-slate-500 mb-2">CIE-10: {suggestion.cie10_code}</p>
-                    )}
-                    <p className="text-sm text-slate-600 dark:text-slate-400">
-                      {suggestion.description?.substring(0, 100)}...
-                    </p>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -417,11 +493,11 @@ Escala 1-10: ___
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-500" />
+              <FileText className="w-5 h-5 text-blue-500" aria-hidden="true" />
               Generador de Resúmenes
             </h3>
             <p className="text-sm text-slate-500 mb-4">
-              Ingresa tus notas de consulta y la IA generará un resumen estructurado.
+              Ingresa tus notas de consulta para generar un resumen estructurado.
             </p>
             <Textarea
               value={notes}
@@ -430,15 +506,15 @@ Escala 1-10: ___
               rows={8}
               className="mb-4"
             />
-            <Button onClick={handleGenerateSummary} disabled={loading} className="w-full gap-2">
+            <Button onClick={handleGenerateSummary} disabled={loading || !notes.trim()} className="w-full gap-2">
               {loading ? (
                 <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                   Generando...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4" />
+                  <Sparkles className="w-4 h-4" aria-hidden="true" />
                   Generar Resumen
                 </>
               )}
@@ -451,21 +527,27 @@ Escala 1-10: ___
                 Resumen Generado
               </h3>
               {generatedSummary && (
-                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(generatedSummary)}>
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(generatedSummary)}
+                  aria-label="Copiar resumen"
+                >
+                  {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                 </Button>
               )}
             </div>
             {generatedSummary ? (
-              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
                 <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">
                   {generatedSummary}
                 </pre>
               </div>
             ) : (
-              <p className="text-center text-slate-500 py-8">
-                Genera un resumen para verlo aquí
-              </p>
+              <div className="text-center text-slate-500 py-8">
+                <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
+                <p>Genera un resumen para verlo aquí</p>
+              </div>
             )}
           </Card>
         </div>
@@ -476,7 +558,7 @@ Escala 1-10: ___
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-purple-500" />
+              <Sparkles className="w-5 h-5 text-purple-500" aria-hidden="true" />
               Generador de Notas Médicas
             </h3>
             <p className="text-sm text-slate-500 mb-4">
@@ -485,13 +567,14 @@ Escala 1-10: ___
 
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                <label htmlFor="note-type" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
                   Tipo de Nota
                 </label>
                 <select
+                  id="note-type"
                   value={consultationType}
                   onChange={(e) => setConsultationType(e.target.value)}
-                  className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg"
+                  className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                 >
                   <option value="general">Consulta General</option>
                   <option value="seguimiento">Nota de Evolución</option>
@@ -501,10 +584,11 @@ Escala 1-10: ___
               </div>
 
               <div>
-                <label className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
+                <label htmlFor="patient-info" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
                   Información del Paciente
                 </label>
                 <Input
+                  id="patient-info"
                   value={patientInfo}
                   onChange={(e) => setPatientInfo(e.target.value)}
                   placeholder="Nombre del paciente (opcional)"
@@ -514,12 +598,12 @@ Escala 1-10: ___
               <Button onClick={handleGenerateNote} disabled={loading} className="w-full gap-2">
                 {loading ? (
                   <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
                     Generando...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4" />
+                    <Sparkles className="w-4 h-4" aria-hidden="true" />
                     Generar Nota
                   </>
                 )}
@@ -533,21 +617,27 @@ Escala 1-10: ___
                 Nota Generada
               </h3>
               {generatedNote && (
-                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(generatedNote)}>
-                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => copyToClipboard(generatedNote)}
+                  aria-label="Copiar nota"
+                >
+                  {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                 </Button>
               )}
             </div>
             {generatedNote ? (
-              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg max-h-[400px] overflow-y-auto">
+              <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700 max-h-[400px] overflow-y-auto">
                 <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">
                   {generatedNote}
                 </pre>
               </div>
             ) : (
-              <p className="text-center text-slate-500 py-8">
-                Genera una nota para verla aquí
-              </p>
+              <div className="text-center text-slate-500 py-8">
+                <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
+                <p>Genera una nota para verla aquí</p>
+              </div>
             )}
           </Card>
         </div>
@@ -558,11 +648,11 @@ Escala 1-10: ___
         <div className="space-y-6">
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 flex items-center gap-2">
-              <Search className="w-5 h-5 text-green-500" />
-              Búsqueda Inteligente
+              <Search className="w-5 h-5 text-green-500" aria-hidden="true" />
+              Búsqueda en Catálogo
             </h3>
             <p className="text-sm text-slate-500 mb-4">
-              Busca medicamentos o enfermedades en el catálogo.
+              Busca medicamentos o enfermedades en el catálogo institucional.
             </p>
             <div className="flex gap-2">
               <Input
@@ -570,9 +660,11 @@ Escala 1-10: ___
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Ingresa tu búsqueda..."
                 onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                className="flex-1"
               />
-              <Button onClick={handleSearch} disabled={loading}>
-                <Send className="w-4 h-4" />
+              <Button onClick={handleSearch} disabled={loading || !searchQuery.trim()}>
+                <Send className="w-4 h-4" aria-hidden="true" />
+                <span className="sr-only">Buscar</span>
               </Button>
             </div>
           </Card>
@@ -580,28 +672,35 @@ Escala 1-10: ___
           {searchResults.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {searchResults.map((result, idx) => (
-                <Card key={idx} className="p-4">
+                <Card key={`${result.type}-${idx}`} className="p-4">
                   <Badge
                     variant="outline"
                     className={`mb-2 ${
                       result.type === 'medication'
-                        ? 'bg-blue-50 text-blue-700'
-                        : 'bg-green-50 text-green-700'
+                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
+                        : 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
                     }`}
                   >
                     {result.type === 'medication' ? 'Medicamento' : 'Enfermedad'}
                   </Badge>
                   <h4 className="font-semibold text-slate-900 dark:text-white">
-                    {result.type === 'medication' ? result.data.generic_name : result.data.name}
+                    {result.type === 'medication'
+                      ? String(result.data.generic_name || 'Sin nombre')
+                      : String(result.data.name || 'Sin nombre')}
                   </h4>
                   {result.type === 'medication' && result.data.active_ingredient && (
                     <p className="text-sm text-slate-500 mt-1">
-                      {result.data.active_ingredient}
+                      {String(result.data.active_ingredient)}
                     </p>
                   )}
                   {result.type === 'disease' && result.data.cie10_code && (
                     <p className="text-sm text-slate-500 mt-1">
-                      CIE-10: {result.data.cie10_code}
+                      CIE-10: {String(result.data.cie10_code)}
+                    </p>
+                  )}
+                  {result.data.description && (
+                    <p className="text-sm text-slate-500 mt-1 line-clamp-2">
+                      {String(result.data.description)}
                     </p>
                   )}
                 </Card>

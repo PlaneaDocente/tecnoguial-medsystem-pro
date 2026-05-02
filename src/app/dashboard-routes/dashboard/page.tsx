@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -10,12 +10,11 @@ import {
   DollarSign,
   TrendingUp,
   TrendingDown,
-  Clock,
-  AlertTriangle,
   Plus,
   ClipboardList,
   ArrowRight,
-  Activity
+  Activity,
+  AlertCircle
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -30,82 +29,117 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import type { Appointment, Patient, Consultation } from '@/lib/types';
+import type { Appointment, Patient } from '@/lib/types';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444'];
+
+interface DashboardStats {
+  totalPatients: number;
+  patientsChange: number;
+  appointmentsToday: number;
+  monthlyRevenue: number;
+  newPatients: number;
+}
+
+interface AppointmentWithPatientName {
+  id: string;
+  user_id: string;
+  patient_id: string;
+  date: string;
+  start_time: string | null;
+  end_time: string | null;
+  type: string;
+  status: string;
+  notes: string | null;
+  duration_minutes: number | null;
+  created_at: string;
+  updated_at: string;
+  patient?: { first_name: string; last_name: string } | null;
+}
 
 export default function DashboardPage() {
   const { user, profile } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<DashboardStats>({
     totalPatients: 0,
     patientsChange: 0,
     appointmentsToday: 0,
     monthlyRevenue: 0,
     newPatients: 0
   });
-  const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
+  const [todayAppointments, setTodayAppointments] = useState<AppointmentWithPatientName[]>([]);
   const [recentPatients, setRecentPatients] = useState<Patient[]>([]);
   const [consultationsByType, setConsultationsByType] = useState<{ name: string; value: number }[]>([]);
   const [patientsEvolution, setPatientsEvolution] = useState<{ month: string; count: number }[]>([]);
   const [alerts, setAlerts] = useState<{ type: string; title: string; description: string }[]>([]);
 
-  useEffect(() => {
-    if (user) {
-      fetchDashboardData();
-    }
-  }, [user]);
-
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = useCallback(async () => {
     if (!user) return;
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const firstDayOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
-      const lastMonth = new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0];
-
-      // Fetch total patients
-      const { count: totalPatients } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id);
-
-      // Fetch patients this month
-      const { count: newPatients } = await supabase
-        .from('patients')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', user.id)
-        .gte('created_at', firstDayOfMonth);
-
-      // Fetch appointments today
-      const { data: appointmentsToday } = await supabase
-        .from('appointments')
-        .select('*, patient:patients(first_name, last_name)')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .in('status', ['pending', 'confirmed'])
-        .order('start_time');
-
-      // Fetch recent patients
-      const { data: recent } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(5);
-
-      // Fetch consultations by type (last 30 days)
+      const now = new Date();
+      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const firstDayOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+      const lastDayOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0).toISOString();
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data: consultations } = await supabase
-        .from('consultations')
-        .select('type')
-        .eq('user_id', user.id)
-        .gte('consultation_date', thirtyDaysAgo.toISOString());
+      // Consultas independientes paralelizadas
+      const [
+        totalPatientsRes,
+        newPatientsRes,
+        lastMonthPatientsRes,
+        appointmentsTodayRes,
+        recentPatientsRes,
+        consultationsRes
+      ] = await Promise.all([
+        supabase
+          .from('patients')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id),
+        supabase
+          .from('patients')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', firstDayOfMonth),
+        supabase
+          .from('patients')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', user.id)
+          .gte('created_at', firstDayOfLastMonth)
+          .lte('created_at', lastDayOfLastMonth),
+        supabase
+          .from('appointments')
+          .select('*, patient:patients(first_name, last_name)')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .in('status', ['pending', 'confirmed'])
+          .order('start_time'),
+        supabase
+          .from('patients')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(5),
+        supabase
+          .from('consultations')
+          .select('type')
+          .eq('user_id', user.id)
+          .gte('consultation_date', thirtyDaysAgo.toISOString())
+      ]);
 
+      // Calcular estadísticas
+      const totalPatients = totalPatientsRes.count || 0;
+      const newPatients = newPatientsRes.count || 0;
+      const lastMonthPatients = lastMonthPatientsRes.count || 0;
+      const patientsChange = lastMonthPatients > 0
+        ? Math.round(((newPatients - lastMonthPatients) / lastMonthPatients) * 100)
+        : 0;
+
+      // Procesar tipos de consulta
       const typeCount: Record<string, number> = {};
-      consultations?.forEach(c => {
+      consultationsRes.data?.forEach(c => {
         typeCount[c.type] = (typeCount[c.type] || 0) + 1;
       });
 
@@ -116,71 +150,56 @@ export default function DashboardPage() {
         { name: 'Urgencia', value: typeCount.urgencia || 0 }
       ];
 
-      // Fetch patients evolution (last 6 months)
-      const evolution: { month: string; count: number }[] = [];
-      for (let i = 5; i >= 0; i--) {
+      // Evolución de pacientes (últimos 6 meses) - paralelizado
+      const evolutionPromises = Array.from({ length: 6 }, (_, i) => {
         const date = new Date();
-        date.setMonth(date.getMonth() - i);
+        date.setMonth(date.getMonth() - (5 - i));
         const monthStart = new Date(date.getFullYear(), date.getMonth(), 1).toISOString();
         const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0).toISOString();
 
-        const { count } = await supabase
+        return supabase
           .from('patients')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', user.id)
           .gte('created_at', monthStart)
-          .lte('created_at', monthEnd);
+          .lte('created_at', monthEnd)
+          .then(res => ({
+            month: date.toLocaleDateString('es-ES', { month: 'short' }),
+            count: res.count || 0
+          }));
+      });
 
-        evolution.push({
-          month: date.toLocaleDateString('es-ES', { month: 'short' }),
-          count: count || 0
-        });
-      }
+      const evolution = await Promise.all(evolutionPromises);
 
-      // Generate alerts
+      // Generar alertas inteligentes
       const alertList: { type: string; title: string; description: string }[] = [];
 
-      if (appointmentsToday && appointmentsToday.length === 0) {
+      if (!appointmentsTodayRes.data?.length) {
         alertList.push({
           type: 'info',
           title: 'Sin citas hoy',
-          description: 'No tienes citas programadas para hoy'
+          description: 'No tienes citas programadas para el día de hoy'
         });
       }
 
-      if (recentPatients && recentPatients.length < 5) {
+      if (newPatients === 0) {
         alertList.push({
           type: 'warning',
-          title: 'Nuevos pacientes',
-          description: 'Considera dar a conocer tus servicios'
-        });
-      }
-
-      // Check for patients without follow-up
-      const { data: noFollowUp } = await supabase
-        .from('patients')
-        .select('id')
-        .eq('user_id', user.id)
-        .limit(1);
-
-      if (noFollowUp && noFollowUp.length > 0) {
-        alertList.push({
-          type: 'warning',
-          title: 'Seguimiento pendiente',
-          description: 'Hay pacientes que requieren seguimiento'
+          title: 'Sin nuevos pacientes este mes',
+          description: 'Considera estrategias para atraer nuevos pacientes'
         });
       }
 
       setStats({
-        totalPatients: totalPatients || 0,
-        patientsChange: 0,
-        appointmentsToday: appointmentsToday?.length || 0,
+        totalPatients,
+        patientsChange,
+        appointmentsToday: appointmentsTodayRes.data?.length || 0,
         monthlyRevenue: 0,
-        newPatients: newPatients || 0
+        newPatients
       });
 
-      setTodayAppointments(appointmentsToday || []);
-      setRecentPatients(recent || []);
+      setTodayAppointments(appointmentsTodayRes.data || []);
+      setRecentPatients(recentPatientsRes.data || []);
       setConsultationsByType(consultationTypes);
       setPatientsEvolution(evolution);
       setAlerts(alertList);
@@ -190,7 +209,11 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user]);
+
+  useEffect(() => {
+    if (user) fetchDashboardData();
+  }, [user, fetchDashboardData]);
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -220,10 +243,21 @@ export default function DashboardPage() {
     return colors[status] || colors.pending;
   };
 
+  const getAppointmentStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      pending: 'Pendiente',
+      confirmed: 'Confirmada',
+      in_progress: 'En curso',
+      completed: 'Completada',
+      cancelled: 'Cancelada'
+    };
+    return labels[status] || status;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
       </div>
     );
   }
@@ -234,22 +268,52 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-            {getGreeting()}, {profile?.full_name?.split(' ')[0]}
+            {getGreeting()}, {profile?.full_name?.split(' ')[0] || 'Doctor'}
           </h1>
           <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Aquí está el resumen de tu actividad
+            Resumen de tu actividad
           </p>
         </div>
-        <div className="flex gap-3">
-          <Link
-            href="/patients/new"
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Nuevo Paciente
-          </Link>
-        </div>
+        <Link
+          href="/patients/new"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          Nuevo Paciente
+        </Link>
       </div>
+
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div className="space-y-2">
+          {alerts.map((alert, idx) => (
+            <div
+              key={idx}
+              className={`p-3 rounded-lg border flex items-start gap-3 ${
+                alert.type === 'warning'
+                  ? 'bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800'
+                  : 'bg-blue-50 border-blue-200 dark:bg-blue-900/20 dark:border-blue-800'
+              }`}
+            >
+              <AlertCircle className={`w-5 h-5 flex-shrink-0 mt-0.5 ${
+                alert.type === 'warning' ? 'text-amber-600' : 'text-blue-600'
+              }`} aria-hidden="true" />
+              <div>
+                <p className={`text-sm font-medium ${
+                  alert.type === 'warning' ? 'text-amber-800 dark:text-amber-400' : 'text-blue-800 dark:text-blue-400'
+                }`}>
+                  {alert.title}
+                </p>
+                <p className={`text-xs mt-0.5 ${
+                  alert.type === 'warning' ? 'text-amber-700 dark:text-amber-500' : 'text-blue-700 dark:text-blue-500'
+                }`}>
+                  {alert.description}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -263,7 +327,7 @@ export default function DashboardPage() {
               </p>
             </div>
             <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+              <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" aria-hidden="true" />
             </div>
           </div>
         </Card>
@@ -274,11 +338,13 @@ export default function DashboardPage() {
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Citas Hoy</p>
               <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{stats.appointmentsToday}</p>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {todayAppointments.length > 0 ? 'Próxima en ' + todayAppointments[0]?.start_time : 'Sin más citas'}
+                {todayAppointments.length > 0 && todayAppointments[0]?.start_time
+                  ? `Próxima: ${todayAppointments[0].start_time.substring(0, 5)}`
+                  : 'Sin citas pendientes'}
               </p>
             </div>
             <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-green-600 dark:text-green-400" />
+              <Calendar className="w-6 h-6 text-green-600 dark:text-green-400" aria-hidden="true" />
             </div>
           </div>
         </Card>
@@ -288,13 +354,13 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Nuevos (Mes)</p>
               <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">{stats.newPatients}</p>
-              <p className="flex items-center text-sm text-green-600 dark:text-green-400 mt-1">
-                {stats.patientsChange >= 0 ? <TrendingUp className="w-4 h-4 mr-1" /> : <TrendingDown className="w-4 h-4 mr-1" />}
+              <p className={`flex items-center text-sm mt-1 ${stats.patientsChange >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                {stats.patientsChange >= 0 ? <TrendingUp className="w-4 h-4 mr-1" aria-hidden="true" /> : <TrendingDown className="w-4 h-4 mr-1" aria-hidden="true" />}
                 {Math.abs(stats.patientsChange)}% vs mes anterior
               </p>
             </div>
             <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-              <Activity className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+              <Activity className="w-6 h-6 text-purple-600 dark:text-purple-400" aria-hidden="true" />
             </div>
           </div>
         </Card>
@@ -307,11 +373,11 @@ export default function DashboardPage() {
                 {profile?.role === 'psicologo' ? 'Profesional' : 'Básico'}
               </p>
               <Link href="/billing" className="text-sm text-blue-600 hover:text-blue-700 mt-1 inline-flex items-center gap-1">
-                Actualizar <ArrowRight className="w-3 h-3" />
+                Actualizar <ArrowRight className="w-3 h-3" aria-hidden="true" />
               </Link>
             </div>
             <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
-              <DollarSign className="w-6 h-6 text-orange-600 dark:text-orange-400" />
+              <DollarSign className="w-6 h-6 text-orange-600 dark:text-orange-400" aria-hidden="true" />
             </div>
           </div>
         </Card>
@@ -327,13 +393,13 @@ export default function DashboardPage() {
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={patientsEvolution}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-slate-200 dark:stroke-slate-700" />
-                <XAxis dataKey="month" className="text-xs fill-slate-500" />
-                <YAxis className="text-xs fill-slate-500" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: 'var(--tooltip-bg, #fff)',
-                    border: '1px solid var(--tooltip-border, #e2e8f0)',
+                    backgroundColor: 'var(--background)',
+                    border: '1px solid var(--border)',
                     borderRadius: '8px'
                   }}
                 />
@@ -342,7 +408,7 @@ export default function DashboardPage() {
                   dataKey="count"
                   stroke="#3B82F6"
                   strokeWidth={2}
-                  dot={{ fill: '#3B82F6', strokeWidth: 2 }}
+                  dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
                   activeDot={{ r: 6 }}
                 />
               </LineChart>
@@ -397,13 +463,13 @@ export default function DashboardPage() {
 
           {todayAppointments.length === 0 ? (
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-              <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <Calendar className="w-12 h-12 mx-auto mb-3 opacity-50" aria-hidden="true" />
               <p>No tienes citas programadas para hoy</p>
               <Link
                 href="/appointments"
                 className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4" aria-hidden="true" />
                 Agendar nueva cita
               </Link>
             </div>
@@ -422,7 +488,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <p className="font-medium text-slate-900 dark:text-white">
-                        {(appointment.patient as unknown as { first_name: string; last_name: string })?.first_name} {(appointment.patient as unknown as { last_name: string })?.last_name}
+                        {appointment.patient?.first_name} {appointment.patient?.last_name}
                       </p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
                         {getConsultationTypeLabel(appointment.type)}
@@ -430,7 +496,7 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <span className={`px-2 py-1 rounded-full text-xs font-medium ${getAppointmentStatusColor(appointment.status)}`}>
-                    {appointment.status}
+                    {getAppointmentStatusLabel(appointment.status)}
                   </span>
                 </div>
               ))}
@@ -454,13 +520,13 @@ export default function DashboardPage() {
 
           {recentPatients.length === 0 ? (
             <div className="text-center py-8 text-slate-500 dark:text-slate-400">
-              <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+              <Users className="w-12 h-12 mx-auto mb-3 opacity-50" aria-hidden="true" />
               <p>No hay pacientes registrados</p>
               <Link
                 href="/patients/new"
                 className="inline-flex items-center gap-2 mt-3 text-blue-600 hover:text-blue-700"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4 h-4" aria-hidden="true" />
                 Agregar paciente
               </Link>
             </div>
@@ -472,7 +538,7 @@ export default function DashboardPage() {
                   href={`/patients/${patient.id}`}
                   className="flex items-center gap-3 p-2 hover:bg-slate-50 dark:hover:bg-slate-700/50 rounded-lg transition-colors"
                 >
-                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0">
                     {patient.first_name.charAt(0)}{patient.last_name.charAt(0)}
                   </div>
                   <div className="flex-1 min-w-0">
@@ -496,45 +562,23 @@ export default function DashboardPage() {
           Accesos Rápidos
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Link
-            href="/patients/new"
-            className="flex flex-col items-center gap-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center">
-              <Users className="w-6 h-6 text-blue-600" />
-            </div>
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Nuevo Paciente</span>
-          </Link>
-
-          <Link
-            href="/consultations/new"
-            className="flex flex-col items-center gap-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center">
-              <ClipboardList className="w-6 h-6 text-green-600" />
-            </div>
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Nueva Consulta</span>
-          </Link>
-
-          <Link
-            href="/appointments/new"
-            className="flex flex-col items-center gap-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-purple-600" />
-            </div>
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Nueva Cita</span>
-          </Link>
-
-          <Link
-            href="/ai-assistant"
-            className="flex flex-col items-center gap-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-          >
-            <div className="w-12 h-12 bg-orange-100 dark:bg-orange-900/30 rounded-xl flex items-center justify-center">
-              <Activity className="w-6 h-6 text-orange-600" />
-            </div>
-            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Asistente IA</span>
-          </Link>
+          {[
+            { href: '/patients/new', icon: Users, label: 'Nuevo Paciente', color: 'blue' },
+            { href: '/consultations/new', icon: ClipboardList, label: 'Nueva Consulta', color: 'green' },
+            { href: '/appointments/new', icon: Calendar, label: 'Nueva Cita', color: 'purple' },
+            { href: '/ai-assistant', icon: Activity, label: 'Asistente IA', color: 'orange' }
+          ].map(action => (
+            <Link
+              key={action.href}
+              href={action.href}
+              className="flex flex-col items-center gap-2 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              <div className={`w-12 h-12 bg-${action.color}-100 dark:bg-${action.color}-900/30 rounded-xl flex items-center justify-center`}>
+                <action.icon className={`w-6 h-6 text-${action.color}-600 dark:text-${action.color}-400`} aria-hidden="true" />
+              </div>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300 text-center">{action.label}</span>
+            </Link>
+          ))}
         </div>
       </Card>
     </div>

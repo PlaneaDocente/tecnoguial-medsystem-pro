@@ -1,21 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
 import {
   Calendar,
   Plus,
   Clock,
-  User,
   ChevronLeft,
   ChevronRight,
   X,
-  Check
+  Check,
+  AlertCircle
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -27,20 +26,33 @@ import {
 } from '@/components/ui/dialog';
 import type { Appointment, Patient } from '@/lib/types';
 
+type AppointmentWithPatient = Appointment & {
+  patient?: Pick<Patient, 'id' | 'first_name' | 'last_name' | 'phone'> | null;
+};
+
+// Helpers para manejo seguro de fechas sin problemas de timezone
+const toLocalISO = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const parseLocalDate = (dateStr: string): Date => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+};
+
 export default function AppointmentsPage() {
   const { user } = useAuth();
-  const [appointments, setAppointments] = useState<(Appointment & { patient?: Patient })[]>([]);
+  const [appointments, setAppointments] = useState<AppointmentWithPatient[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
-  const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+  const [selectedAppointment, setSelectedAppointment] = useState<AppointmentWithPatient | null>(null);
 
-  useEffect(() => {
-    if (user) fetchAppointments();
-  }, [user, currentDate]);
-
-  const fetchAppointments = async () => {
+  const fetchAppointments = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
@@ -52,8 +64,8 @@ export default function AppointmentsPage() {
         .from('appointments')
         .select('*, patient:patients(id, first_name, last_name, phone)')
         .eq('user_id', user.id)
-        .gte('date', firstDay.toISOString().split('T')[0])
-        .lte('date', lastDay.toISOString().split('T')[0])
+        .gte('date', toLocalISO(firstDay))
+        .lte('date', toLocalISO(lastDay))
         .order('date')
         .order('start_time');
 
@@ -64,69 +76,93 @@ export default function AppointmentsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, currentDate]);
 
-  const getDaysInMonth = (date: Date) => {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
+  useEffect(() => {
+    if (user) fetchAppointments();
+  }, [user, fetchAppointments]);
+
+  const calendarDays = useMemo(() => {
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const firstDayOfMonth = new Date(year, month, 1);
+    const lastDayOfMonth = new Date(year, month + 1, 0);
+
     const days: Date[] = [];
+    const startPadding = firstDayOfMonth.getDay(); // 0=Domingo
 
-    // Add padding days from previous month
-    const startPadding = firstDay.getDay();
-    for (let i = startPadding - 1; i >= 0; i--) {
-      const d = new Date(year, month, -i);
-      days.push(d);
+    // Días del mes anterior
+    for (let i = startPadding; i > 0; i--) {
+      days.push(new Date(year, month, 1 - i));
     }
 
-    // Add days of current month
-    for (let i = 1; i <= lastDay.getDate(); i++) {
+    // Días del mes actual
+    for (let i = 1; i <= lastDayOfMonth.getDate(); i++) {
       days.push(new Date(year, month, i));
     }
 
-    // Add padding days for next month
-    const endPadding = 42 - days.length;
-    for (let i = 1; i <= endPadding; i++) {
+    // Días del mes siguiente para completar 6 semanas (42 días)
+    const remaining = 42 - days.length;
+    for (let i = 1; i <= remaining; i++) {
       days.push(new Date(year, month + 1, i));
     }
 
     return days;
-  };
+  }, [currentDate]);
 
-  const getAppointmentsForDate = (date: Date) => {
-    const dateStr = date.toISOString().split('T')[0];
-    return appointments.filter(a => a.date === dateStr);
-  };
+  const appointmentsByDate = useMemo(() => {
+    const map = new Map<string, AppointmentWithPatient[]>();
+    appointments.forEach(apt => {
+      const list = map.get(apt.date) || [];
+      list.push(apt);
+      map.set(apt.date, list);
+    });
+    return map;
+  }, [appointments]);
 
-  const isToday = (date: Date) => {
+  const getAppointmentsForDate = useCallback((date: Date) => {
+    return appointmentsByDate.get(toLocalISO(date)) || [];
+  }, [appointmentsByDate]);
+
+  const isToday = useCallback((date: Date) => {
     const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
+    return date.getDate() === today.getDate() &&
+      date.getMonth() === today.getMonth() &&
+      date.getFullYear() === today.getFullYear();
+  }, []);
 
-  const isCurrentMonth = (date: Date) => {
+  const isCurrentMonth = useCallback((date: Date) => {
     return date.getMonth() === currentDate.getMonth();
-  };
+  }, [currentDate]);
 
-  const changeMonth = (delta: number) => {
+  const changeMonth = useCallback((delta: number) => {
     setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
-  };
+    setSelectedDate(null);
+  }, []);
 
-  const updateAppointmentStatus = async (appointmentId: string, status: string) => {
+  const goToToday = useCallback(() => {
+    const today = new Date();
+    setCurrentDate(today);
+    setSelectedDate(toLocalISO(today));
+  }, []);
+
+  const updateAppointmentStatus = useCallback(async (appointmentId: string, status: Appointment['status']) => {
     try {
-      await supabase
+      const { error } = await supabase
         .from('appointments')
         .update({ status })
         .eq('id', appointmentId);
 
+      if (error) throw error;
+
       setAppointments(prev =>
-        prev.map(a => a.id === appointmentId ? { ...a, status: status as Appointment['status'] } : a)
+        prev.map(a => a.id === appointmentId ? { ...a, status } : a)
       );
       setShowAppointmentModal(false);
     } catch (error) {
       console.error('Error updating appointment:', error);
     }
-  };
+  }, []);
 
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
@@ -139,13 +175,23 @@ export default function AppointmentsPage() {
     return colors[status] || colors.pending;
   };
 
-  const days = getDaysInMonth(currentDate);
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      pending: 'Pendiente',
+      confirmed: 'Confirmada',
+      in_progress: 'En curso',
+      completed: 'Completada',
+      cancelled: 'Cancelada'
+    };
+    return labels[status] || status;
+  };
+
   const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
       </div>
     );
   }
@@ -155,12 +201,13 @@ export default function AppointmentsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Agenda</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">
-            Calendario de citas
-          </p>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Calendario de citas</p>
         </div>
-        <Link href="/appointments/new" className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors">
-          <Plus className="w-4 h-4" />
+        <Link
+          href="/appointments/new"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
           Nueva Cita
         </Link>
       </div>
@@ -168,18 +215,18 @@ export default function AppointmentsPage() {
       <Card className="p-6">
         {/* Calendar Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
+          <h2 className="text-xl font-semibold text-slate-900 dark:text-white capitalize">
             {currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
           </h2>
           <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={() => changeMonth(-1)}>
-              <ChevronLeft className="w-4 h-4" />
+            <Button variant="outline" size="icon" onClick={() => changeMonth(-1)} aria-label="Mes anterior">
+              <ChevronLeft className="w-4 h-4" aria-hidden="true" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>
+            <Button variant="outline" size="sm" onClick={goToToday}>
               Hoy
             </Button>
-            <Button variant="outline" size="icon" onClick={() => changeMonth(1)}>
-              <ChevronRight className="w-4 h-4" />
+            <Button variant="outline" size="icon" onClick={() => changeMonth(1)} aria-label="Mes siguiente">
+              <ChevronRight className="w-4 h-4" aria-hidden="true" />
             </Button>
           </div>
         </div>
@@ -195,27 +242,27 @@ export default function AppointmentsPage() {
 
         {/* Calendar Grid */}
         <div className="grid grid-cols-7 gap-1">
-          {days.map((day, idx) => {
+          {calendarDays.map((day, idx) => {
             const dayAppointments = getAppointmentsForDate(day);
             const hasAppointments = dayAppointments.length > 0;
+            const dateISO = toLocalISO(day);
+            const isSelected = selectedDate === dateISO;
 
             return (
               <button
                 key={idx}
                 onClick={() => {
-                  setSelectedDate(day.toISOString().split('T')[0]);
+                  setSelectedDate(dateISO);
                   setSelectedAppointment(null);
                 }}
                 className={`
                   min-h-[80px] p-2 border rounded-lg text-left transition-colors
                   ${!isCurrentMonth(day) ? 'bg-slate-50 dark:bg-slate-800/50 text-slate-400' : 'bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700'}
                   ${isToday(day) ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900' : ''}
+                  ${isSelected ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-slate-100 dark:border-slate-700'}
                 `}
               >
-                <span className={`
-                  text-sm font-medium
-                  ${isToday(day) ? 'text-blue-600' : ''}
-                `}>
+                <span className={`text-sm font-medium ${isToday(day) ? 'text-blue-600' : ''}`}>
                   {day.getDate()}
                 </span>
                 {hasAppointments && (
@@ -224,6 +271,7 @@ export default function AppointmentsPage() {
                       <div
                         key={apt.id}
                         className={`text-xs px-1 py-0.5 rounded truncate ${getStatusColor(apt.status)}`}
+                        title={`${apt.start_time?.substring(0, 5)} - ${apt.patient?.first_name} ${apt.patient?.last_name}`}
                       >
                         {apt.start_time?.substring(0, 5)}
                       </div>
@@ -242,29 +290,32 @@ export default function AppointmentsPage() {
       {/* Selected Day Appointments */}
       {selectedDate && (
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-            Citas del {new Date(selectedDate + 'T00:00:00').toLocaleDateString('es-ES', {
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4 capitalize">
+            Citas del {parseLocalDate(selectedDate).toLocaleDateString('es-ES', {
               weekday: 'long',
               day: 'numeric',
               month: 'long'
             })}
           </h3>
 
-          {getAppointmentsForDate(new Date(selectedDate + 'T00:00:00')).length === 0 ? (
-            <p className="text-center text-slate-500 py-8">No hay citas para este día</p>
+          {getAppointmentsForDate(parseLocalDate(selectedDate)).length === 0 ? (
+            <div className="text-center py-8 text-slate-500">
+              <AlertCircle className="w-10 h-10 mx-auto mb-2 opacity-50" aria-hidden="true" />
+              <p>No hay citas para este día</p>
+            </div>
           ) : (
             <div className="space-y-3">
-              {getAppointmentsForDate(new Date(selectedDate + 'T00:00:00')).map(apt => (
+              {getAppointmentsForDate(parseLocalDate(selectedDate)).map(apt => (
                 <div
                   key={apt.id}
-                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
+                  className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-800 rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
                   onClick={() => {
                     setSelectedAppointment(apt);
                     setShowAppointmentModal(true);
                   }}
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
                       {apt.start_time?.substring(0, 5)}
                     </div>
                     <div>
@@ -276,11 +327,9 @@ export default function AppointmentsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge className={getStatusColor(apt.status)}>
-                      {apt.status}
+                      {getStatusLabel(apt.status)}
                     </Badge>
-                    <Badge variant="outline">
-                      {apt.type}
-                    </Badge>
+                    <Badge variant="outline">{apt.type}</Badge>
                   </div>
                 </div>
               ))}
@@ -291,7 +340,7 @@ export default function AppointmentsPage() {
 
       {/* Appointment Modal */}
       <Dialog open={showAppointmentModal} onOpenChange={setShowAppointmentModal}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Detalles de la Cita</DialogTitle>
           </DialogHeader>
@@ -309,53 +358,53 @@ export default function AppointmentsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-sm text-slate-500">Fecha</p>
+                  <p className="text-slate-500">Fecha</p>
                   <p className="font-medium">
-                    {new Date(selectedAppointment.date + 'T00:00:00').toLocaleDateString('es-ES')}
+                    {parseLocalDate(selectedAppointment.date).toLocaleDateString('es-ES')}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Tipo</p>
-                  <p className="font-medium">{selectedAppointment.type}</p>
+                  <p className="text-slate-500">Tipo</p>
+                  <p className="font-medium capitalize">{selectedAppointment.type}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Duración</p>
+                  <p className="text-slate-500">Duración</p>
                   <p className="font-medium">{selectedAppointment.duration_minutes} minutos</p>
                 </div>
                 <div>
-                  <p className="text-sm text-slate-500">Estado</p>
+                  <p className="text-slate-500">Estado</p>
                   <Badge className={getStatusColor(selectedAppointment.status)}>
-                    {selectedAppointment.status}
+                    {getStatusLabel(selectedAppointment.status)}
                   </Badge>
                 </div>
               </div>
 
               {selectedAppointment.notes && (
                 <div>
-                  <p className="text-sm text-slate-500">Notas</p>
-                  <p className="font-medium">{selectedAppointment.notes}</p>
+                  <p className="text-sm text-slate-500 mb-1">Notas</p>
+                  <p className="text-sm bg-slate-50 dark:bg-slate-800 p-3 rounded-lg">{selectedAppointment.notes}</p>
                 </div>
               )}
             </div>
           )}
-          <DialogFooter className="gap-2">
+          <DialogFooter className="gap-2 flex-wrap">
             {selectedAppointment?.status === 'pending' && (
-              <Button onClick={() => updateAppointmentStatus(selectedAppointment!.id, 'confirmed')}>
-                <Check className="w-4 h-4 mr-2" />
+              <Button onClick={() => updateAppointmentStatus(selectedAppointment.id, 'confirmed')}>
+                <Check className="w-4 h-4 mr-2" aria-hidden="true" />
                 Confirmar
               </Button>
             )}
             {(selectedAppointment?.status === 'pending' || selectedAppointment?.status === 'confirmed') && (
               <Button variant="destructive" onClick={() => updateAppointmentStatus(selectedAppointment!.id, 'cancelled')}>
-                <X className="w-4 h-4 mr-2" />
+                <X className="w-4 h-4 mr-2" aria-hidden="true" />
                 Cancelar
               </Button>
             )}
             {selectedAppointment?.status === 'confirmed' && (
-              <Button onClick={() => updateAppointmentStatus(selectedAppointment!.id, 'completed')}>
-                <Check className="w-4 h-4 mr-2" />
+              <Button onClick={() => updateAppointmentStatus(selectedAppointment.id, 'completed')}>
+                <Check className="w-4 h-4 mr-2" aria-hidden="true" />
                 Completar
               </Button>
             )}

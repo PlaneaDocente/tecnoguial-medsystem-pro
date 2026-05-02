@@ -55,7 +55,7 @@ export default function PatientDetailPage() {
   const [showChronicModal, setShowChronicModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [uploadCategory, setUploadCategory] = useState('laboratory');
+  const [uploadCategory, setUploadCategory] = useState<"laboratory" | "imaging" | "clinical" | "prescription" | "other">('laboratory');
   const [uploadNotes, setUploadNotes] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -663,7 +663,7 @@ export default function PatientDetailPage() {
                 <label className="block text-sm font-medium mb-1">Categoría</label>
                 <select
                   value={uploadCategory}
-                  onChange={(e) => setUploadCategory(e.target.value)}
+                  onChange={(e) => setUploadCategory(e.target.value as "laboratory" | "imaging" | "clinical" | "prescription" | "other")}
                   className="w-full px-3 py-2 border rounded-lg bg-white dark:bg-slate-700"
                 >
                   <option value="laboratory">Laboratorio</option>
