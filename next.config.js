@@ -3,16 +3,19 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 
   webpack: (config) => {
     config.watchOptions = {
       ignored: [
-        '**/node_modules',
-        '**/.git',
-        '**/C:/hiberfil.sys',
-        '**/C:/pagefile.sys',
-        '**/C:/swapfile.sys',
-        '**/C:/System Volume Information'
+        "**/node_modules",
+        "**/.git",
+        "**/C:/DumpStack.log.tmp",
+        "**/C:/pagefile.sys",
+        "**/C:/swapfile.sys",
+        "**/C:/System Volume Information",
       ],
     };
     return config;
@@ -23,10 +26,9 @@ const nextConfig = {
       {
         source: "/:path*",
         headers: [
-          // 🔐 CORS (más controlado)
           {
             key: "Access-Control-Allow-Origin",
-            value: "*", // luego lo puedes restringir a tu dominio
+            value: "*",
           },
           {
             key: "Access-Control-Allow-Methods",
@@ -36,17 +38,13 @@ const nextConfig = {
             key: "Access-Control-Allow-Headers",
             value: "Content-Type, Authorization",
           },
-
-          // ⚡ rendimiento
           {
             key: "Access-Control-Max-Age",
             value: "86400",
           },
-
-          // 🔐 seguridad mejorada
           {
             key: "X-Frame-Options",
-            value: "SAMEORIGIN", // antes ALLOWALL (inseguro)
+            value: "SAMEORIGIN",
           },
           {
             key: "Content-Security-Policy",

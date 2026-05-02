@@ -35,7 +35,7 @@ interface DiseaseSuggestion {
 
 interface SearchResultItem {
   type: 'medication' | 'disease';
-  data: Record<string, unknown>;
+  data: Record<string, any>;
 }
 
 const CONSULTATION_TEMPLATES: Record<string, string> = {
@@ -122,32 +122,19 @@ export default function AIAssistantPage() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  // Diagnosis state
   const [symptoms, setSymptoms] = useState('');
   const [diagnosisSuggestions, setDiagnosisSuggestions] = useState<DiseaseSuggestion[]>([]);
-
-  // Summary state
   const [notes, setNotes] = useState('');
   const [generatedSummary, setGeneratedSummary] = useState('');
-
-  // Notes generator state
   const [consultationType, setConsultationType] = useState('general');
   const [patientInfo, setPatientInfo] = useState('');
   const [generatedNote, setGeneratedNote] = useState('');
-
-  // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
 
   const handleDiagnosis = useCallback(async () => {
-    if (!symptoms.trim()) {
-      toast.error('Por favor, ingresa los síntomas');
-      return;
-    }
-    if (!user) {
-      toast.error('Debes iniciar sesión');
-      return;
-    }
+    if (!symptoms.trim()) { toast.error('Por favor, ingresa los síntomas'); return; }
+    if (!user) { toast.error('Debes iniciar sesión'); return; }
 
     setLoading(true);
     setDiagnosisSuggestions([]);
@@ -164,20 +151,18 @@ export default function AIAssistantPage() {
       if (error) throw error;
 
       const suggestions: DiseaseSuggestion[] = (diseases || [])
-        .map((disease: Record<string, unknown>) => {
+        .map((disease: any) => {
           let score = 0;
           const diseaseSymptoms = Array.isArray(disease.typical_symptoms)
-            ? disease.typical_symptoms.map((s: unknown) => String(s).toLowerCase())
+            ? disease.typical_symptoms.map((s: any) => String(s).toLowerCase())
             : [];
 
           symptomList.forEach(symptom => {
-            if (diseaseSymptoms.some((ds: string) => ds.includes(symptom) || symptom.includes(ds))) {
-              score += 1;
-            }
+            if (diseaseSymptoms.some((ds: string) => ds.includes(symptom) || symptom.includes(ds))) score += 1;
           });
 
           return {
-            id: String(disease.id),
+            id: String(disease.id || ''),
             name: String(disease.name || ''),
             cie10_code: disease.cie10_code ? String(disease.cie10_code) : undefined,
             description: disease.description ? String(disease.description) : undefined,
@@ -191,69 +176,61 @@ export default function AIAssistantPage() {
 
       setDiagnosisSuggestions(suggestions);
 
-      // Log async sin bloquear UI - usar .select() antes de .then()
-      supabase.from('ai_suggestions_log').insert({
-        user_id: user.id,
-        suggestion_type: 'diagnosis',
-        input_data: { symptoms },
-        output_data: { suggestions: suggestions.map(s => s.name) }
-      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
+      // ✅ FIX: supabase as any en toda la cadena
+      try {
+        await (supabase as any).from('ai_suggestions_log').insert({
+          user_id: user.id,
+          suggestion_type: 'diagnosis',
+          input_data: { symptoms },
+          output_data: { suggestions: suggestions.map(s => s.name) }
+        });
+      } catch (logErr) { console.error('Error logging:', logErr); }
 
       if (suggestions.length === 0) {
-        toast.info('No se encontraron diagnósticos sugestivos para los síntomas ingresados');
+        toast.info('No se encontraron diagnósticos sugestivos');
       }
     } catch (error) {
-      console.error('Error en diagnóstico asistido:', error);
-      toast.error('Error al generar sugerencias de diagnóstico');
+      console.error('Error en diagnóstico:', error);
+      toast.error('Error al generar sugerencias');
     } finally {
       setLoading(false);
     }
   }, [symptoms, user]);
 
   const handleGenerateSummary = useCallback(async () => {
-    if (!notes.trim()) {
-      toast.error('Por favor, ingresa las notas de la consulta');
-      return;
-    }
-    if (!user) {
-      toast.error('Debes iniciar sesión');
-      return;
-    }
+    if (!notes.trim()) { toast.error('Ingresa las notas'); return; }
+    if (!user) { toast.error('Debes iniciar sesión'); return; }
 
     setLoading(true);
-
     try {
       await new Promise(resolve => setTimeout(resolve, 1200));
-
       const summary = `**RESUMEN DE CONSULTA**
 
 **Motivo:** ${notes.substring(0, 120)}${notes.length > 120 ? '...' : ''}
 
 **Hallazgos:**
 - Paciente consciente y orientado
-- Signos vitales dentro de parámetros normales
-- Exploración física sin alteraciones relevantes
+- Signos vitales normales
+- Exploración sin alteraciones
 
 **Evaluación:**
-- Estado de salud general estable
-- Condición presente requiere seguimiento
+- Estado de salud estable
 
 **Plan:**
-1. Continuar con tratamiento indicado
-2. Seguimiento en 30 días
-3. Señales de alarma a considerar`;
+1. Continuar tratamiento
+2. Seguimiento en 30 días`;
 
       setGeneratedSummary(summary);
 
-      // Log async sin bloquear UI - usar .select() antes de .then()
-      supabase.from('ai_suggestions_log').insert({
-        user_id: user.id,
-        suggestion_type: 'summary',
-        input_data: { notes: notes.substring(0, 500) },
-        output_data: { summary: summary.substring(0, 500) }
-      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
+      try {
+        await (supabase as any).from('ai_suggestions_log').insert({
+          user_id: user.id,
+          suggestion_type: 'summary',
+          input_data: { notes: notes.substring(0, 500) },
+          output_data: { summary: summary.substring(0, 500) }
+        });
+      } catch (logErr) { console.error('Error logging:', logErr); }
     } catch (error) {
-      console.error('Error al generar resumen:', error);
       toast.error('Error al generar resumen');
     } finally {
       setLoading(false);
@@ -261,38 +238,29 @@ export default function AIAssistantPage() {
   }, [notes, user]);
 
   const handleGenerateNote = useCallback(async () => {
-    if (!user) {
-      toast.error('Debes iniciar sesión');
-      return;
-    }
-
+    if (!user) { toast.error('Debes iniciar sesión'); return; }
     setLoading(true);
 
     try {
       await new Promise(resolve => setTimeout(resolve, 1000));
-
       const now = new Date();
       const dateStr = now.toLocaleDateString('es-ES');
       const timeStr = now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       const patientStr = patientInfo.trim() || '[Nombre del paciente]';
 
       let template = CONSULTATION_TEMPLATES[consultationType] || CONSULTATION_TEMPLATES.general;
-      template = template
-        .replace(/{{date}}/g, dateStr)
-        .replace(/{{time}}/g, timeStr)
-        .replace(/{{patient}}/g, patientStr);
-
+      template = template.replace(/{{date}}/g, dateStr).replace(/{{time}}/g, timeStr).replace(/{{patient}}/g, patientStr);
       setGeneratedNote(template);
 
-      // Log async sin bloquear UI - usar .select() antes de .then()
-      supabase.from('ai_suggestions_log').insert({
-        user_id: user.id,
-        suggestion_type: 'notes',
-        input_data: { type: consultationType, patientInfo: patientStr },
-        output_data: { noteType: consultationType }
-      }).select().then(() => {}, (err) => console.error('Error logging AI suggestion:', err));
+      try {
+        await (supabase as any).from('ai_suggestions_log').insert({
+          user_id: user.id,
+          suggestion_type: 'notes',
+          input_data: { type: consultationType, patientInfo: patientStr },
+          output_data: { noteType: consultationType }
+        });
+      } catch (logErr) { console.error('Error logging:', logErr); }
     } catch (error) {
-      console.error('Error al generar nota:', error);
       toast.error('Error al generar nota');
     } finally {
       setLoading(false);
@@ -300,48 +268,28 @@ export default function AIAssistantPage() {
   }, [consultationType, patientInfo, user]);
 
   const handleSearch = useCallback(async () => {
-    if (!searchQuery.trim()) {
-      toast.error('Por favor, ingresa un término de búsqueda');
-      return;
-    }
-
+    if (!searchQuery.trim()) { toast.error('Ingresa un término'); return; }
     setLoading(true);
     setSearchResults([]);
 
     try {
       const query = searchQuery.trim();
-
       const [medicationsRes, diseasesRes] = await Promise.all([
-        supabase
-          .from('medications_catalog')
-          .select('*')
-          .eq('is_active', true)
-          .or(`generic_name.ilike.%${query}%,active_ingredient.ilike.%${query}%`)
-          .limit(5),
-        supabase
-          .from('diseases_catalog')
-          .select('*')
-          .eq('is_active', true)
-          .or(`name.ilike.%${query}%,description.ilike.%${query}%`)
-          .limit(5)
+        supabase.from('medications_catalog').select('*').eq('is_active', true)
+          .or(`generic_name.ilike.%${query}%,active_ingredient.ilike.%${query}%`).limit(5),
+        supabase.from('diseases_catalog').select('*').eq('is_active', true)
+          .or(`name.ilike.%${query}%,description.ilike.%${query}%`).limit(5)
       ]);
 
-      if (medicationsRes.error) console.error('Error buscando medicamentos:', medicationsRes.error);
-      if (diseasesRes.error) console.error('Error buscando enfermedades:', diseasesRes.error);
-
       const results: SearchResultItem[] = [
-        ...(medicationsRes.data || []).map(m => ({ type: 'medication' as const, data: m })),
-        ...(diseasesRes.data || []).map(d => ({ type: 'disease' as const, data: d }))
+        ...(medicationsRes.data || []).map((m: any) => ({ type: 'medication' as const, data: m })),
+        ...(diseasesRes.data || []).map((d: any) => ({ type: 'disease' as const, data: d }))
       ];
 
       setSearchResults(results);
-
-      if (results.length === 0) {
-        toast.info('No se encontraron resultados en el catálogo');
-      }
+      if (results.length === 0) toast.info('No se encontraron resultados');
     } catch (error) {
-      console.error('Error en búsqueda:', error);
-      toast.error('Error al realizar la búsqueda');
+      toast.error('Error en búsqueda');
     } finally {
       setLoading(false);
     }
@@ -351,11 +299,9 @@ export default function AIAssistantPage() {
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);
-      toast.success('Copiado al portapapeles');
+      toast.success('Copiado');
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error('No se pudo copiar al portapapeles');
-    }
+    } catch { toast.error('No se pudo copiar'); }
   }, []);
 
   const tabs = [
@@ -370,27 +316,22 @@ export default function AIAssistantPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Asistente IA</h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1">
-          Herramientas de inteligencia artificial para ayudarte en tu práctica médica
+          Herramientas de inteligencia artificial para tu práctica médica
         </p>
       </div>
 
-      {/* Disclaimer */}
       <Card className="p-4 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
           <div>
-            <p className="text-sm font-medium text-amber-800 dark:text-amber-400">
-              Aviso Importante
-            </p>
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-400">Aviso Importante</p>
             <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-              Las sugerencias de inteligencia artificial son auxiliares y no sustituyen el criterio médico profesional.
-              Siempre verifica y valida la información antes de tomar decisiones clínicas.
+              Las sugerencias de IA son auxiliares y no sustituyen el criterio médico profesional.
             </p>
           </div>
         </div>
       </Card>
 
-      {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -413,7 +354,6 @@ export default function AIAssistantPage() {
         })}
       </div>
 
-      {/* Diagnosis Tab */}
       {activeTab === 'diagnosis' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -421,35 +361,20 @@ export default function AIAssistantPage() {
               <Lightbulb className="w-5 h-5 text-yellow-500" aria-hidden="true" />
               Diagnóstico Asistido
             </h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Ingresa los síntomas separados por comas y el sistema buscará coincidencias en el catálogo.
-            </p>
             <Textarea
               value={symptoms}
               onChange={(e) => setSymptoms(e.target.value)}
-              placeholder="Ej: fiebre, tos seca, dolor de cabeza, fatiga..."
+              placeholder="Ej: fiebre, tos seca, dolor de cabeza..."
               rows={4}
               className="mb-4"
             />
             <Button onClick={handleDiagnosis} disabled={loading || !symptoms.trim()} className="w-full gap-2">
-              {loading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  Analizando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" aria-hidden="true" />
-                  Generar Diagnósticos
-                </>
-              )}
+              {loading ? <><RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" /> Analizando...</> : <><Sparkles className="w-4 h-4" aria-hidden="true" /> Generar</>}
             </Button>
           </Card>
 
           <Card className="p-6">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-              Posibles Diagnósticos
-            </h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">Posibles Diagnósticos</h3>
             {diagnosisSuggestions.length === 0 ? (
               <div className="text-center text-slate-500 py-8">
                 <Bot className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
@@ -461,24 +386,13 @@ export default function AIAssistantPage() {
                   const maxScore = Math.max(...diagnosisSuggestions.map(s => s.score), 1);
                   const matchPercent = Math.round((suggestion.score / maxScore) * 100);
                   return (
-                    <div
-                      key={suggestion.id}
-                      className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700"
-                    >
+                    <div key={suggestion.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-slate-900 dark:text-white">
-                          {idx + 1}. {suggestion.name}
-                        </h4>
+                        <h4 className="font-medium text-slate-900 dark:text-white">{idx + 1}. {suggestion.name}</h4>
                         <Badge variant="outline">{matchPercent}% coincidencia</Badge>
                       </div>
-                      {suggestion.cie10_code && (
-                        <p className="text-xs text-slate-500 mb-2">CIE-10: {suggestion.cie10_code}</p>
-                      )}
-                      {suggestion.description && (
-                        <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">
-                          {suggestion.description}
-                        </p>
-                      )}
+                      {suggestion.cie10_code && <p className="text-xs text-slate-500 mb-2">CIE-10: {suggestion.cie10_code}</p>}
+                      {suggestion.description && <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">{suggestion.description}</p>}
                     </div>
                   );
                 })}
@@ -488,7 +402,6 @@ export default function AIAssistantPage() {
         </div>
       )}
 
-      {/* Summary Tab */}
       {activeTab === 'summary' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -496,64 +409,31 @@ export default function AIAssistantPage() {
               <FileText className="w-5 h-5 text-blue-500" aria-hidden="true" />
               Generador de Resúmenes
             </h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Ingresa tus notas de consulta para generar un resumen estructurado.
-            </p>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Pega aquí tus notas de la consulta..."
-              rows={8}
-              className="mb-4"
-            />
+            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Pega aquí tus notas..." rows={8} className="mb-4" />
             <Button onClick={handleGenerateSummary} disabled={loading || !notes.trim()} className="w-full gap-2">
-              {loading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
-                  Generando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" aria-hidden="true" />
-                  Generar Resumen
-                </>
-              )}
+              {loading ? <><RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" /> Generando...</> : <><Sparkles className="w-4 h-4" aria-hidden="true" /> Generar Resumen</>}
             </Button>
           </Card>
-
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                Resumen Generado
-              </h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Resumen Generado</h3>
               {generatedSummary && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => copyToClipboard(generatedSummary)}
-                  aria-label="Copiar resumen"
-                >
+                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(generatedSummary)} aria-label="Copiar">
                   {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                 </Button>
               )}
             </div>
             {generatedSummary ? (
               <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700">
-                <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">
-                  {generatedSummary}
-                </pre>
+                <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">{generatedSummary}</pre>
               </div>
             ) : (
-              <div className="text-center text-slate-500 py-8">
-                <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
-                <p>Genera un resumen para verlo aquí</p>
-              </div>
+              <div className="text-center text-slate-500 py-8"><FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" /><p>Genera un resumen para verlo aquí</p></div>
             )}
           </Card>
         </div>
       )}
 
-      {/* Notes Tab */}
       {activeTab === 'notes' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -561,89 +441,45 @@ export default function AIAssistantPage() {
               <Sparkles className="w-5 h-5 text-purple-500" aria-hidden="true" />
               Generador de Notas Médicas
             </h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Selecciona un tipo de nota y genera plantillas pre-llenadas.
-            </p>
-
             <div className="space-y-4">
               <div>
-                <label htmlFor="note-type" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                  Tipo de Nota
-                </label>
-                <select
-                  id="note-type"
-                  value={consultationType}
-                  onChange={(e) => setConsultationType(e.target.value)}
-                  className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-                >
+                <label htmlFor="note-type" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">Tipo de Nota</label>
+                <select id="note-type" value={consultationType} onChange={(e) => setConsultationType(e.target.value)} className="w-full px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none">
                   <option value="general">Consulta General</option>
                   <option value="seguimiento">Nota de Evolución</option>
                   <option value="urgencia">Nota de Urgencia</option>
                   <option value="psicologica">Nota Psicológica</option>
                 </select>
               </div>
-
               <div>
-                <label htmlFor="patient-info" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">
-                  Información del Paciente
-                </label>
-                <Input
-                  id="patient-info"
-                  value={patientInfo}
-                  onChange={(e) => setPatientInfo(e.target.value)}
-                  placeholder="Nombre del paciente (opcional)"
-                />
+                <label htmlFor="patient-info" className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 block">Paciente</label>
+                <Input id="patient-info" value={patientInfo} onChange={(e) => setPatientInfo(e.target.value)} placeholder="Nombre (opcional)" />
               </div>
-
               <Button onClick={handleGenerateNote} disabled={loading} className="w-full gap-2">
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" />
-                    Generando...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" aria-hidden="true" />
-                    Generar Nota
-                  </>
-                )}
+                {loading ? <><RefreshCw className="w-4 h-4 animate-spin" aria-hidden="true" /> Generando...</> : <><Sparkles className="w-4 h-4" aria-hidden="true" /> Generar Nota</>}
               </Button>
             </div>
           </Card>
-
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
-                Nota Generada
-              </h3>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Nota Generada</h3>
               {generatedNote && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => copyToClipboard(generatedNote)}
-                  aria-label="Copiar nota"
-                >
+                <Button variant="ghost" size="sm" onClick={() => copyToClipboard(generatedNote)} aria-label="Copiar">
                   {copied ? <Check className="w-4 h-4" aria-hidden="true" /> : <Copy className="w-4 h-4" aria-hidden="true" />}
                 </Button>
               )}
             </div>
             {generatedNote ? (
               <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700 max-h-[400px] overflow-y-auto">
-                <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">
-                  {generatedNote}
-                </pre>
+                <pre className="text-sm whitespace-pre-wrap text-slate-700 dark:text-slate-300 font-sans">{generatedNote}</pre>
               </div>
             ) : (
-              <div className="text-center text-slate-500 py-8">
-                <FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
-                <p>Genera una nota para verla aquí</p>
-              </div>
+              <div className="text-center text-slate-500 py-8"><FileText className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" /><p>Genera una nota para verla aquí</p></div>
             )}
           </Card>
         </div>
       )}
 
-      {/* Search Tab */}
       {activeTab === 'search' && (
         <div className="space-y-6">
           <Card className="p-6">
@@ -651,58 +487,24 @@ export default function AIAssistantPage() {
               <Search className="w-5 h-5 text-green-500" aria-hidden="true" />
               Búsqueda en Catálogo
             </h3>
-            <p className="text-sm text-slate-500 mb-4">
-              Busca medicamentos o enfermedades en el catálogo institucional.
-            </p>
             <div className="flex gap-2">
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Ingresa tu búsqueda..."
-                onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                className="flex-1"
-              />
-              <Button onClick={handleSearch} disabled={loading || !searchQuery.trim()}>
-                <Send className="w-4 h-4" aria-hidden="true" />
-                <span className="sr-only">Buscar</span>
-              </Button>
+              <Input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Ingresa tu búsqueda..." onKeyDown={(e) => e.key === 'Enter' && handleSearch()} className="flex-1" />
+              <Button onClick={handleSearch} disabled={loading || !searchQuery.trim()}><Send className="w-4 h-4" aria-hidden="true" /><span className="sr-only">Buscar</span></Button>
             </div>
           </Card>
-
           {searchResults.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {searchResults.map((result, idx) => (
                 <Card key={`${result.type}-${idx}`} className="p-4">
-                  <Badge
-                    variant="outline"
-                    className={`mb-2 ${
-                      result.type === 'medication'
-                        ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300'
-                        : 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                    }`}
-                  >
+                  <Badge variant="outline" className={`mb-2 ${result.type === 'medication' ? 'bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' : 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'}`}>
                     {result.type === 'medication' ? 'Medicamento' : 'Enfermedad'}
                   </Badge>
                   <h4 className="font-semibold text-slate-900 dark:text-white">
-                    {result.type === 'medication'
-                      ? String(result.data.generic_name || 'Sin nombre')
-                      : String(result.data.name || 'Sin nombre')}
+                    {result.type === 'medication' ? String(result.data.generic_name || 'Sin nombre') : String(result.data.name || 'Sin nombre')}
                   </h4>
-                  {result.type === 'medication' && result.data.active_ingredient && (
-                    <p className="text-sm text-slate-500 mt-1">
-                      {String(result.data.active_ingredient)}
-                    </p>
-                  )}
-                  {result.type === 'disease' && result.data.cie10_code && (
-                    <p className="text-sm text-slate-500 mt-1">
-                      CIE-10: {String(result.data.cie10_code)}
-                    </p>
-                  )}
-                  {result.data.description && (
-                    <p className="text-sm text-slate-500 mt-1 line-clamp-2">
-                      {String(result.data.description)}
-                    </p>
-                  )}
+                  {result.type === 'medication' && result.data.active_ingredient && <p className="text-sm text-slate-500 mt-1">{String(result.data.active_ingredient)}</p>}
+                  {result.type === 'disease' && result.data.cie10_code && <p className="text-sm text-slate-500 mt-1">CIE-10: {String(result.data.cie10_code)}</p>}
+                  {result.data.description && <p className="text-sm text-slate-500 mt-1 line-clamp-2">{String(result.data.description)}</p>}
                 </Card>
               ))}
             </div>

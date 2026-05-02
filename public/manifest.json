@@ -1,8 +1,9 @@
 {
+  "id": "com.tecnoguial.medsystem",
   "name": "TecnoGuiAl MedSystem Pro",
   "short_name": "MedSystem",
   "description": "Sistema profesional de gestión médica para doctores, psicólogos y clínicas",
-  "start_url": "/",
+  "start_url": "/login",
   "scope": "/",
   "display": "standalone",
   "background_color": "#FFFFFF",
@@ -61,5 +62,6 @@
   "categories": ["medical", "productivity", "business"],
   "lang": "es",
   "dir": "ltr",
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "screenshots": []
 }
