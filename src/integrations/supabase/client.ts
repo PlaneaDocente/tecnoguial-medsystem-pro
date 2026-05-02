@@ -3,9 +3,6 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-// Cliente real o dummy: nunca lanza errores síncronos que rompan React SSR
-let supabase: ReturnType<typeof createClient>;
-
 const isValidUrl = (url: string | undefined): boolean => {
   if (!url) return false;
   if (url.includes("TU_URL") || url.includes("YOUR_URL") || url.includes("example")) return false;
@@ -17,14 +14,13 @@ const isValidUrl = (url: string | undefined): boolean => {
   }
 };
 
-if (!isValidUrl(supabaseUrl) || !supabaseAnonKey || supabaseAnonKey.length < 20) {
-  console.warn("⚠️ [Supabase] NEXT_PUBLIC_SUPABASE_URL o NEXT_PUBLIC_SUPABASE_ANON_KEY no configuradas. Cliente en modo offline.");
+let supabase: ReturnType<typeof createClient>;
 
-  // Dummy que imita la API exacta que usamos en useAuth y en el dashboard
+if (!isValidUrl(supabaseUrl) || !supabaseAnonKey || supabaseAnonKey.length < 20) {
+  console.warn("⚠️ [Supabase] Variables no configuradas. Cliente en modo offline.");
+  
   const dummySubscription = {
-    subscription: {
-      unsubscribe: () => {},
-    },
+    subscription: { unsubscribe: () => {} },
   };
 
   const dummyAuth = {
@@ -37,9 +33,8 @@ if (!isValidUrl(supabaseUrl) || !supabaseAnonKey || supabaseAnonKey.length < 20)
     select: () => ({
       eq: () => ({
         maybeSingle: () => Promise.resolve({ data: null, error: null }),
-        order: () => ({
-          limit: () => Promise.resolve({ data: [], error: null }),
-        }),
+        order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }),
+        gte: () => ({ lte: () => Promise.resolve({ data: [], error: null }) }),
       }),
       order: () => Promise.resolve({ data: [], error: null }),
     }),

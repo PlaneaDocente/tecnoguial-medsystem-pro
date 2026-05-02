@@ -33,16 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const initAuth = async () => {
       try {
-        // Seguridad: si Supabase no responde en 3s, liberamos la UI
         timeoutId = setTimeout(() => {
           if (mounted) {
-            console.warn("⏱️ [useAuth] Timeout de autenticación. Continuando sin sesión.");
+            console.warn("⏱️ [useAuth] Timeout. Continuando sin sesión.");
             setLoading(false);
           }
         }, 3000);
 
         const { data: { session } } = await supabase.auth.getSession();
-
         if (!mounted) return;
 
         if (session?.user) {
@@ -70,7 +68,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     initAuth();
 
-    // Manejo seguro del listener: verificamos que la respuesta tenga la forma correcta
     let listener: any;
     try {
       const result = supabase.auth.onAuthStateChange((_event, session) => {
@@ -78,44 +75,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(session?.user ?? null);
         if (!session?.user) setProfile(null);
       });
-      // Supabase real retorna { data: { subscription } }, dummy retorna el objeto directo
       listener = result?.data?.subscription ? result : { subscription: { unsubscribe: () => {} } };
     } catch (e) {
-      console.warn("Listener de auth no disponible:", e);
       listener = { subscription: { unsubscribe: () => {} } };
     }
 
     return () => {
       mounted = false;
       clearTimeout(timeoutId);
-      try {
-        listener?.subscription?.unsubscribe();
-      } catch {
-        // noop
-      }
+      try { listener?.subscription?.unsubscribe(); } catch {}
     };
   }, []);
 
   const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {
-      console.warn("Signout error:", e);
-    }
+    try { await supabase.auth.signOut(); } catch {}
     setUser(null);
     setProfile(null);
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        profile,
-        loading,
-        isAuthenticated: !!user,
-        signOut,
-      }}
-    >
+    <AuthContext.Provider value={{ user, profile, loading, isAuthenticated: !!user, signOut }}>
       {children}
     </AuthContext.Provider>
   );
