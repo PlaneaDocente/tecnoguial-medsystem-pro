@@ -1,3 +1,4 @@
+# ===== Base original del proyecto =====
 .next
 node_modules
 .DS_Store
@@ -6,4 +7,78 @@ node_modules
 # local env files
 .env*
 !.env.example
+
 .vercel
+
+# ===== Builds y artefactos generados =====
+/dist
+/out
+/build
+/dist_electron
+/release
+*.tsbuildinfo
+
+# ===== Instaladores y binarios de Electron =====
+*.exe
+*.msi
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+*.blockmap
+*.asar
+*.dll
+*.pak
+*.bin
+*.dat
+
+# ===== Comprimidos (NUNCA al repo) =====
+*.zip
+*.7z
+*.rar
+*.tar
+*.tar.gz
+*.tgz
+*.gz
+*.bz2
+
+# ===== Documentos que no son codigo =====
+*.docx
+*.doc
+*.pdf
+*.pptx
+*.xlsx
+*.xls
+*.odt
+
+# ===== Multimedia pesada =====
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+
+# ===== Backups, temporales, logs =====
+*.bak
+*.backup
+*.tmp
+*.log
+*.orig
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ===== Scripts de aplicacion de parches (no productivos) =====
+aplicar_*.ps1
+aplicar-*.ps1
+rescate_*.ps1
+fix-*.ps1
+
+# ===== Bases de datos locales =====
+*.sqlite
+*.sqlite3
+*.db
