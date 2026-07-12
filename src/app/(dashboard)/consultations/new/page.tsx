@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -14,47 +14,75 @@ import { toast } from 'sonner';
 export default function NewConsultationPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const preselectedPatientId = searchParams.get('patientId') || '';
+  
   const [loading, setLoading] = useState(false);
-  const [patientId, setPatientId] = useState('');
+  const [error, setError] = useState('');
+  const [patientId, setPatientId] = useState(preselectedPatientId);
   const [type, setType] = useState('general');
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [notes, setNotes] = useState('');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) return;
+    setError('');
+    
+    if (!user) {
+      setError('Debes iniciar sesión');
+      toast.error('Debes iniciar sesión');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const { error } = await (supabase as any).from('consultations').insert({
-        user_id: user.id,
-        patient_id: patientId || null,
-        type,
-        chief_complaint: chiefComplaint,
-        notes,
-        status: 'completed'
-      });
+      const { data, error: insertError } = await supabase
+        .from('consultations')
+        .insert({
+          user_id: user.id,
+          patient_id: patientId.trim() || null,
+          type,
+          chief_complaint: chiefComplaint.trim() || null,
+          notes: notes.trim() || null,
+          status: 'completed',
+          consultation_date: new Date().toISOString()
+        })
+        .select()
+        .maybeSingle();
 
-      if (error) throw error;
-      toast.success('Consulta registrada');
+      if (insertError) {
+        throw new Error(insertError.message || insertError.details || 'Error al guardar la consulta');
+      }
+
+      toast.success('Consulta registrada correctamente');
       router.push('/consultations');
     } catch (err: any) {
-      toast.error(err?.message || 'Error al guardar');
+      console.error('Error creating consultation:', err);
+      const msg = err?.message || 'Error al guardar';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-2xl mx-auto">
       <div className="flex items-center gap-4">
-        <Link href="/consultations" className="p-2 hover:bg-slate-100 rounded-lg">
+        <Link href="/consultations" className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <h1 className="text-2xl font-bold">Nueva Consulta</h1>
       </div>
 
-      <Card className="p-6 max-w-lg">
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      <Card className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">ID Paciente (opcional)</label>

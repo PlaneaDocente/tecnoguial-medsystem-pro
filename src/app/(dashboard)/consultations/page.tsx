@@ -28,6 +28,7 @@ export default function ConsultationsPage() {
   const { user } = useAuth();
   const [consultations, setConsultations] = useState<ConsultationWithPatient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -37,6 +38,7 @@ export default function ConsultationsPage() {
   const fetchConsultations = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
 
     try {
       let query = supabase
@@ -49,7 +51,6 @@ export default function ConsultationsPage() {
         query = query.eq('type', typeFilter);
       }
 
-      // Búsqueda por texto en paciente o diagnóstico
       if (search.trim()) {
         const q = search.trim();
         query = query.or(`patient.first_name.ilike.%${q}%,patient.last_name.ilike.%${q}%,chief_complaint.ilike.%${q}%`);
@@ -58,13 +59,14 @@ export default function ConsultationsPage() {
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      const { data, error, count } = await query.range(from, to);
+      const { data, error: queryError, count } = await query.range(from, to);
 
-      if (error) throw error;
+      if (queryError) throw queryError;
       setConsultations(data || []);
       setTotalCount(count || 0);
-    } catch (error) {
-      console.error('Error fetching consultations:', error);
+    } catch (err: any) {
+      console.error('Error fetching consultations:', err);
+      setError(err?.message || 'Error al cargar consultas');
     } finally {
       setLoading(false);
     }
@@ -74,7 +76,6 @@ export default function ConsultationsPage() {
     if (user) fetchConsultations();
   }, [user, fetchConsultations]);
 
-  // Resetear página cuando cambia filtro o búsqueda
   useEffect(() => {
     setCurrentPage(1);
   }, [typeFilter, search]);
@@ -103,7 +104,7 @@ export default function ConsultationsPage() {
   const hasNextPage = currentPage < totalPages;
   const hasPrevPage = currentPage > 1;
 
-  if (loading) {
+  if (loading && consultations.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
@@ -126,6 +127,13 @@ export default function ConsultationsPage() {
           Nueva Consulta
         </Link>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {error}
+        </div>
+      )}
 
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -229,7 +237,6 @@ export default function ConsultationsPage() {
             ))}
           </div>
 
-          {/* Paginación */}
           {totalPages > 1 && (
             <div className="flex items-center justify-between pt-4">
               <p className="text-sm text-slate-500">

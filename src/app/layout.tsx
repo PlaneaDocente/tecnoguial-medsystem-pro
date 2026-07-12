@@ -1,10 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Roboto_Mono } from "next/font/google";
-import { ThemeProvider } from "@/components/ThemeProvider";
-import { Toaster } from "@/components/ui/sonner";
-import GlobalClientEffects from "@/components/GlobalClientEffects";
-import PWARegister from "@/components/PWARegister";
-import { AuthProvider } from "@/hooks/useAuth";
+import { Providers } from "@/components/Providers";
 
 import "./globals.css";
 
@@ -25,7 +21,7 @@ export const metadata: Metadata = {
     default: "TecnoGuiAl MedSystem Pro",
     template: "%s | MedSystem Pro",
   },
-  description: "Sistema profesional de gestión médica para doctores, psicólogos y clínicas",
+  description: "Sistema profesional de gestion medica para doctores, psicologos y clinicas",
   manifest: "/manifest.json",
   icons: {
     icon: [
@@ -59,7 +55,7 @@ export const metadata: Metadata = {
     url: "https://tecnoguial-medsystem-pro.vercel.app",
     siteName: "TecnoGuiAl MedSystem Pro",
     title: "TecnoGuiAl MedSystem Pro",
-    description: "Sistema profesional de gestión médica para doctores, psicólogos y clínicas",
+    description: "Sistema profesional de gestion medica para doctores, psicologos y clinicas",
     images: [
       {
         url: "/icons/icon-512x512.png",
@@ -88,7 +84,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es" suppressHydrationWarning className={`${inter.variable} ${mono.variable}`}>
+    <html
+      lang="es"
+      suppressHydrationWarning
+      className={`${inter.variable} ${mono.variable}`}
+    >
       <head>
         <meta name="application-name" content="MedSystem" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -103,19 +103,7 @@ export default function RootLayout({
         <link rel="mask-icon" href="/icons/icon-192x192.png" color="#0066CC" />
       </head>
       <body className="antialiased font-sans">
-        <AuthProvider>
-          <Toaster position="top-right" richColors closeButton />
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="system"
-            enableSystem
-            disableTransitionOnChange={false}
-          >
-            {children}
-            <GlobalClientEffects />
-          </ThemeProvider>
-        </AuthProvider>
-        <PWARegister />
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

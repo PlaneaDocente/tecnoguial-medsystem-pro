@@ -13,19 +13,35 @@ import {
   User,
   Bell,
   Palette,
-  Shield,
   Download,
-  Upload,
   Save,
-  Camera
+  Camera,
+  AlertCircle
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ClinicSettings } from '@/lib/types';
 
+// Tipo extendido del perfil para campos opcionales que pueden existir en la tabla
+// pero que aún no están en los tipos generados de @/lib/types
+type ExtendedProfile = {
+  id?: string;
+  full_name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  phone?: string | null;
+  specialty?: string | null;
+  license_number?: string | null;
+  bio?: string | null;
+};
+
 export default function SettingsPage() {
-  const { user, profile, updateProfile } = useAuth();
+  const { user, profile } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [settings, setSettings] = useState<ClinicSettings | null>(null);
+
+  // Usamos el perfil como ExtendedProfile para acceder a campos opcionales sin errores de tipo
+  const extendedProfile = profile as ExtendedProfile | null;
 
   const [profileData, setProfileData] = useState({
     full_name: '',
@@ -51,51 +67,77 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
 
   useEffect(() => {
-    if (profile) {
+    if (extendedProfile) {
       setProfileData({
-        full_name: profile.full_name || '',
-        phone: profile.phone || '',
-        specialty: profile.specialty || '',
-        license_number: (profile as any).license_number || '',
-        bio: (profile as any).bio || ''
+        full_name: extendedProfile.full_name || '',
+        phone: extendedProfile.phone || '',
+        specialty: extendedProfile.specialty || '',
+        license_number: extendedProfile.license_number || '',
+        bio: extendedProfile.bio || ''
       });
       fetchClinicSettings();
     }
-  }, [profile]);
+  }, [extendedProfile]);
 
   const fetchClinicSettings = async () => {
     if (!user) return;
-    const { data } = await supabase
-      .from('clinic_settings')
-      .select('*')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    try {
+      const { data } = await supabase
+        .from('clinic_settings')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
 
-    if (data) {
-      setSettings(data);
-      setClinicData({
-        clinic_name: data.clinic_name || '',
-        address: data.address || '',
-        phone: data.phone || '',
-        email: data.email || '',
-        tax_id: data.tax_id || ''
-      });
-      if (data.notification_prefs) {
-        setNotifications(data.notification_prefs);
+      if (data) {
+        setSettings(data);
+        setClinicData({
+          clinic_name: data.clinic_name || '',
+          address: data.address || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          tax_id: data.tax_id || ''
+        });
+        if (data.notification_prefs) {
+          setNotifications(data.notification_prefs as typeof notifications);
+        }
+        if (data.theme) {
+          setTheme(data.theme as typeof theme);
+        }
       }
-      if (data.theme) {
-        setTheme(data.theme);
-      }
+    } catch (err: any) {
+      console.error('Error fetching clinic settings:', err);
     }
   };
 
   const handleProfileSave = async () => {
+    if (!user) {
+      toast.error('Debes iniciar sesión');
+      return;
+    }
     setLoading(true);
+    setError('');
+
     try {
-      await updateProfile(profileData);
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          full_name: profileData.full_name,
+          phone: profileData.phone,
+          specialty: profileData.specialty,
+          license_number: profileData.license_number,
+          bio: profileData.bio,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (updateError) throw updateError;
+
       toast.success('Perfil actualizado correctamente');
-    } catch (error) {
-      toast.error('Error al actualizar perfil');
+    } catch (err: any) {
+      console.error('Error updating profile:', err);
+      const msg = err?.message || 'Error al actualizar perfil';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -104,35 +146,41 @@ export default function SettingsPage() {
   const handleClinicSave = async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
+
     try {
+      const payload = {
+        clinic_name: clinicData.clinic_name,
+        address: clinicData.address,
+        phone: clinicData.phone,
+        email: clinicData.email,
+        tax_id: clinicData.tax_id,
+        notification_prefs: notifications,
+        theme
+      };
+
       if (settings) {
-        await supabase
+        const { error: updateError } = await supabase
           .from('clinic_settings')
-          .update({
-            clinic_name: clinicData.clinic_name,
-            address: clinicData.address,
-            phone: clinicData.phone,
-            email: clinicData.email,
-            tax_id: clinicData.tax_id,
-            notification_prefs: notifications,
-            theme
-          })
+          .update(payload)
           .eq('user_id', user.id);
+        
+        if (updateError) throw updateError;
       } else {
-        await supabase.from('clinic_settings').insert({
+        const { error: insertError } = await supabase.from('clinic_settings').insert({
           user_id: user.id,
-          clinic_name: clinicData.clinic_name,
-          address: clinicData.address,
-          phone: clinicData.phone,
-          email: clinicData.email,
-          tax_id: clinicData.tax_id,
-          notification_prefs: notifications,
-          theme
+          ...payload
         });
+        
+        if (insertError) throw insertError;
       }
+      
       toast.success('Configuración guardada');
-    } catch (error) {
-      toast.error('Error al guardar');
+    } catch (err: any) {
+      console.error('Error saving clinic settings:', err);
+      const msg = err?.message || 'Error al guardar';
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -140,18 +188,12 @@ export default function SettingsPage() {
 
   const handleExport = async () => {
     if (!user) return;
-    toast.success('Preparando exportación de datos...');
 
     try {
-      const { data: patients } = await supabase
-        .from('patients')
-        .select('*')
-        .eq('user_id', user.id);
-
-      const { data: consultations } = await supabase
-        .from('consultations')
-        .select('*')
-        .eq('user_id', user.id);
+      const [{ data: patients }, { data: consultations }] = await Promise.all([
+        supabase.from('patients').select('*').eq('user_id', user.id),
+        supabase.from('consultations').select('*').eq('user_id', user.id)
+      ]);
 
       const exportData = {
         exportDate: new Date().toISOString(),
@@ -168,8 +210,9 @@ export default function SettingsPage() {
       URL.revokeObjectURL(url);
 
       toast.success('Datos exportados exitosamente');
-    } catch (error) {
-      toast.error('Error al exportar');
+    } catch (err: any) {
+      console.error('Error exporting data:', err);
+      toast.error(err?.message || 'Error al exportar');
     }
   };
 
@@ -182,8 +225,14 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm text-red-700">
+          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Sidebar */}
         <div className="lg:col-span-1">
           <Card className="p-4">
             <nav className="space-y-1">
@@ -206,9 +255,7 @@ export default function SettingsPage() {
           </Card>
         </div>
 
-        {/* Content */}
         <div className="lg:col-span-3 space-y-6">
-          {/* Profile Settings */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <User className="w-5 h-5" />
@@ -219,7 +266,7 @@ export default function SettingsPage() {
               <div className="flex items-center gap-6">
                 <div className="relative">
                   <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
-                    {profile?.full_name?.charAt(0) || 'U'}
+                    {extendedProfile?.full_name?.charAt(0) || 'U'}
                   </div>
                   <button className="absolute bottom-0 right-0 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border shadow flex items-center justify-center">
                     <Camera className="w-4 h-4 text-slate-600" />
@@ -281,7 +328,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Clinic Settings */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Settings className="w-5 h-5" />
@@ -339,7 +385,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Notifications */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Bell className="w-5 h-5" />
@@ -370,7 +415,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Appearance */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Palette className="w-5 h-5" />
@@ -403,7 +447,6 @@ export default function SettingsPage() {
             </div>
           </Card>
 
-          {/* Data */}
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Download className="w-5 h-5" />

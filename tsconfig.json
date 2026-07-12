@@ -11,18 +11,12 @@
     "strict": false,
     "noEmit": true,
     "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": [
-      "node",
-      "react",
-      "react-dom"
-    ],
     "baseUrl": ".",
     "paths": {
       "@/*": [
@@ -40,9 +34,11 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts"
+    ".next/types/**/*.ts",
+    "dist/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist"
   ]
 }

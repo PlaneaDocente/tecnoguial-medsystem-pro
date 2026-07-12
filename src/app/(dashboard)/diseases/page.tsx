@@ -58,6 +58,7 @@ export default function DiseasesPage() {
   const { user } = useAuth();
   const [diseases, setDiseases] = useState<Disease[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selectedDisease, setSelectedDisease] = useState<Disease | null>(null);
@@ -68,6 +69,8 @@ export default function DiseasesPage() {
 
   const fetchDiseases = async () => {
     setLoading(true);
+    setError('');
+    
     try {
       let query = supabase
         .from('diseases_catalog')
@@ -75,25 +78,33 @@ export default function DiseasesPage() {
         .eq('is_active', true)
         .order('name');
 
-      if (search) {
-        query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+      if (search.trim()) {
+        query = query.or(`name.ilike.%${search.trim()}%,description.ilike.%${search.trim()}%`);
       }
 
       if (categoryFilter !== 'all') {
         query = query.eq('category', categoryFilter);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data, error: queryError } = await query;
+      
+      if (queryError) {
+        if (queryError.code === '42P01') {
+          throw new Error('La tabla diseases_catalog no existe. Crea la tabla en Supabase primero.');
+        }
+        throw queryError;
+      }
+      
       setDiseases(data || []);
-    } catch (error) {
-      console.error('Error fetching diseases:', error);
+    } catch (err: any) {
+      console.error('Error fetching diseases:', err);
+      setError(err?.message || 'Error al cargar enfermedades. Verifica que la tabla exista en Supabase.');
     } finally {
       setLoading(false);
     }
   };
 
-  if (loading) {
+  if (loading && diseases.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -111,6 +122,18 @@ export default function DiseasesPage() {
           </p>
         </div>
       </div>
+
+      {error && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">{error}</p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={fetchDiseases}>
+              Reintentar
+            </Button>
+          </div>
+        </div>
+      )}
 
       <Card className="p-4">
         <div className="flex flex-col sm:flex-row gap-4">
@@ -137,14 +160,14 @@ export default function DiseasesPage() {
         </div>
       </Card>
 
-      {diseases.length === 0 ? (
+      {diseases.length === 0 && !error ? (
         <Card className="p-12 text-center">
           <Stethoscope className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
           <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
             No hay enfermedades
           </h3>
           <p className="text-slate-500 dark:text-slate-400">
-            El catálogo está vacío
+            El catálogo está vacío o la tabla no está configurada
           </p>
         </Card>
       ) : (
@@ -197,7 +220,6 @@ export default function DiseasesPage() {
         </div>
       )}
 
-      {/* Disease Detail Modal */}
       <Dialog open={!!selectedDisease} onOpenChange={() => setSelectedDisease(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>

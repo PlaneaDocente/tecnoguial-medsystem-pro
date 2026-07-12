@@ -28,22 +28,26 @@ export default function ChatPage() {
   const [newMessage, setNewMessage] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
+    
     try {
-      const { data, error } = await supabase
+      const { data, error: queryError } = await supabase
         .from('conversations')
         .select('*, patient:patients(id, first_name, last_name)')
         .eq('user_id', user.id)
         .order('last_message_at', { ascending: false });
 
-      if (error) throw error;
+      if (queryError) throw queryError;
       setConversations(data || []);
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
+    } catch (err: any) {
+      console.error('Error fetching conversations:', err);
+      setError(err?.message || 'Error al cargar conversaciones');
     } finally {
       setLoading(false);
     }
@@ -51,16 +55,17 @@ export default function ChatPage() {
 
   const fetchMessages = useCallback(async (conversationId: string) => {
     try {
-      const { data, error } = await supabase
+      const { data, error: queryError } = await supabase
         .from('messages')
         .select('*')
         .eq('conversation_id', conversationId)
         .order('sent_at', { ascending: true });
 
-      if (error) throw error;
+      if (queryError) throw queryError;
       setMessages(data || []);
-    } catch (error) {
-      console.error('Error fetching messages:', error);
+    } catch (err: any) {
+      console.error('Error fetching messages:', err);
+      toast.error('Error al cargar mensajes');
     }
   }, []);
 
@@ -96,8 +101,7 @@ export default function ChatPage() {
     setNewMessage('');
 
     try {
-      // ✅ FIX: supabase as any en inserts/updates
-      const { error: msgError } = await (supabase as any).from('messages').insert({
+      const { error: msgError } = await supabase.from('messages').insert({
         conversation_id: conversationId,
         sender_id: user.id,
         content,
@@ -106,7 +110,7 @@ export default function ChatPage() {
 
       if (msgError) throw msgError;
 
-      const { error: convError } = await (supabase as any)
+      const { error: convError } = await supabase
         .from('conversations')
         .update({ last_message_at: new Date().toISOString() })
         .eq('id', conversationId);
@@ -114,9 +118,9 @@ export default function ChatPage() {
       if (convError) throw convError;
 
       await fetchMessages(conversationId);
-    } catch (error) {
-      console.error('Error sending message:', error);
-      toast.error('Error al enviar mensaje');
+    } catch (err: any) {
+      console.error('Error sending message:', err);
+      toast.error(err?.message || 'Error al enviar mensaje');
       setMessages(prev => prev.filter(m => m.id !== tempId));
     }
   }, [newMessage, selectedConversation, user, fetchMessages]);
@@ -139,7 +143,7 @@ export default function ChatPage() {
     );
   }, [conversations, search]);
 
-  if (loading) {
+  if (loading && conversations.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
@@ -156,6 +160,12 @@ export default function ChatPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <Card className="overflow-hidden h-[calc(100vh-200px)] min-h-[500px]">
         <div className="flex h-full">
           <div className={`w-full md:w-80 border-r border-slate-200 dark:border-slate-700 flex flex-col ${selectedConversation ? 'hidden md:flex' : 'flex'}`}>
@@ -169,7 +179,7 @@ export default function ChatPage() {
               {filteredConversations.length === 0 ? (
                 <div className="p-8 text-center">
                   <MessageSquare className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
-                  <p className="text-sm text-slate-500">{search.trim() ? 'No se encontraron' : 'No hay conversaciones'}</p>
+                  <p className="text-sm text-slate-500">{search.trim() ? 'No se encontraron resultados' : 'No hay conversaciones'}</p>
                 </div>
               ) : (
                 filteredConversations.map(conv => (
