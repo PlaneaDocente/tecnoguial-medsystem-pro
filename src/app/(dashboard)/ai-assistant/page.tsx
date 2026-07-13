@@ -38,9 +38,6 @@ interface SearchResultItem {
   data: Record<string, any>;
 }
 
-// ==========================================
-// CATÁLOGO DE RESPALDO (funciona sin Supabase)
-// ==========================================
 const FALLBACK_DISEASES = [
   { id: '1', name: 'Gripe', cie10_code: 'J11', description: 'Infección viral respiratoria aguda', typical_symptoms: ['fiebre', 'tos', 'dolor de cabeza', 'fatiga', 'escalofríos'] },
   { id: '2', name: 'Hipertensión Arterial', cie10_code: 'I10', description: 'Presión arterial elevada crónica', typical_symptoms: ['dolor de cabeza', 'mareo', 'náuseas', 'visión borrosa', 'zumbido de oídos'] },
@@ -157,9 +154,6 @@ export default function AIAssistantPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
 
-  // ==========================================
-  // DIAGNÓSTICO ASISTIDO - Blindado con fallback
-  // ==========================================
   const handleDiagnosis = useCallback(async () => {
     if (!symptoms.trim()) {
       toast.error('Por favor, ingresa los síntomas');
@@ -176,10 +170,9 @@ export default function AIAssistantPage() {
     try {
       const symptomList = symptoms.toLowerCase().split(',').map(s => s.trim()).filter(Boolean);
 
-      // Intentar cargar desde Supabase primero
       let diseases: any[] = [];
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await supabase
           .from('diseases_catalog')
           .select('*')
           .eq('is_active', true)
@@ -191,7 +184,6 @@ export default function AIAssistantPage() {
         console.warn('Supabase diseases_catalog no disponible, usando fallback');
       }
 
-      // Si no hay datos en Supabase, usar fallback
       if (diseases.length === 0) {
         diseases = FALLBACK_DISEASES;
       }
@@ -224,9 +216,8 @@ export default function AIAssistantPage() {
 
       setDiagnosisSuggestions(suggestions);
 
-      // Log silencioso (no bloquea UI si falla)
       try {
-        await (supabase as any).from('ai_suggestions_log').insert({
+        await supabase.from('ai_suggestions_log').insert({
           user_id: user.id,
           suggestion_type: 'diagnosis',
           input_data: { symptoms },
@@ -247,9 +238,6 @@ export default function AIAssistantPage() {
     }
   }, [symptoms, user]);
 
-  // ==========================================
-  // RESUMEN - Blindado
-  // ==========================================
   const handleGenerateSummary = useCallback(async () => {
     if (!notes.trim()) {
       toast.error('Por favor, ingresa las notas de la consulta');
@@ -288,9 +276,8 @@ export default function AIAssistantPage() {
 
       setGeneratedSummary(summary);
 
-      // Log silencioso
       try {
-        await (supabase as any).from('ai_suggestions_log').insert({
+        await supabase.from('ai_suggestions_log').insert({
           user_id: user.id,
           suggestion_type: 'summary',
           input_data: { notes: notes.substring(0, 500) },
@@ -306,9 +293,6 @@ export default function AIAssistantPage() {
     }
   }, [notes, user]);
 
-  // ==========================================
-  // NOTAS MÉDICAS - Blindado
-  // ==========================================
   const handleGenerateNote = useCallback(async () => {
     if (!user) {
       toast.error('Debes iniciar sesión');
@@ -333,9 +317,8 @@ export default function AIAssistantPage() {
 
       setGeneratedNote(template);
 
-      // Log silencioso
       try {
-        await (supabase as any).from('ai_suggestions_log').insert({
+        await supabase.from('ai_suggestions_log').insert({
           user_id: user.id,
           suggestion_type: 'notes',
           input_data: { type: consultationType, patientInfo: patientStr },
@@ -351,9 +334,6 @@ export default function AIAssistantPage() {
     }
   }, [consultationType, patientInfo, user]);
 
-  // ==========================================
-  // BÚSQUEDA - Blindado con fallback
-  // ==========================================
   const handleSearch = useCallback(async () => {
     if (!searchQuery.trim()) {
       toast.error('Por favor, ingresa un término de búsqueda');
@@ -366,10 +346,9 @@ export default function AIAssistantPage() {
     try {
       const query = searchQuery.trim().toLowerCase();
 
-      // Buscar medicamentos en Supabase
       let medications: any[] = [];
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await supabase
           .from('medications_catalog')
           .select('*')
           .eq('is_active', true)
@@ -378,10 +357,9 @@ export default function AIAssistantPage() {
         if (!error && data) medications = data;
       } catch {}
 
-      // Buscar enfermedades en Supabase
       let diseases: any[] = [];
       try {
-        const { data, error } = await (supabase as any)
+        const { data, error } = await supabase
           .from('diseases_catalog')
           .select('*')
           .eq('is_active', true)
@@ -390,7 +368,6 @@ export default function AIAssistantPage() {
         if (!error && data) diseases = data;
       } catch {}
 
-      // Si no hay resultados de Supabase, usar fallback filtrado
       if (medications.length === 0) {
         medications = FALLBACK_MEDICATIONS.filter(m =>
           m.generic_name.toLowerCase().includes(query) ||
@@ -451,7 +428,6 @@ export default function AIAssistantPage() {
         </p>
       </div>
 
-      {/* Disclaimer */}
       <Card className="p-4 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800">
         <div className="flex items-start gap-3">
           <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" aria-hidden="true" />
@@ -465,7 +441,6 @@ export default function AIAssistantPage() {
         </div>
       </Card>
 
-      {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700 pb-2">
         {tabs.map(tab => {
           const Icon = tab.icon;
@@ -488,7 +463,6 @@ export default function AIAssistantPage() {
         })}
       </div>
 
-      {/* Diagnosis Tab */}
       {activeTab === 'diagnosis' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -549,7 +523,6 @@ export default function AIAssistantPage() {
         </div>
       )}
 
-      {/* Summary Tab */}
       {activeTab === 'summary' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -599,7 +572,6 @@ export default function AIAssistantPage() {
         </div>
       )}
 
-      {/* Notes Tab */}
       {activeTab === 'notes' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <Card className="p-6">
@@ -667,7 +639,6 @@ export default function AIAssistantPage() {
         </div>
       )}
 
-      {/* Search Tab */}
       {activeTab === 'search' && (
         <div className="space-y-6">
           <Card className="p-6">

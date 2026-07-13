@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/badge';
 import {
   Pill,
   Search,
-  Plus,
   AlertTriangle,
   Info,
   ChevronLeft,
@@ -29,6 +28,7 @@ export default function MedicationsPage() {
   const { user } = useAuth();
   const [medications, setMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMedication, setSelectedMedication] = useState<Medication | null>(null);
@@ -40,6 +40,8 @@ export default function MedicationsPage() {
 
   const fetchMedications = async () => {
     setLoading(true);
+    setError('');
+    
     try {
       let query = supabase
         .from('medications_catalog')
@@ -47,15 +49,23 @@ export default function MedicationsPage() {
         .eq('is_active', true)
         .order('generic_name');
 
-      if (search) {
-        query = query.or(`generic_name.ilike.%${search}%,active_ingredient.ilike.%${search}%`);
+      if (search.trim()) {
+        query = query.or(`generic_name.ilike.%${search.trim()}%,active_ingredient.ilike.%${search.trim()}%`);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const { data, error: queryError } = await query;
+      
+      if (queryError) {
+        if (queryError.code === '42P01') {
+          throw new Error('La tabla medications_catalog no existe. Crea la tabla en Supabase primero.');
+        }
+        throw queryError;
+      }
+      
       setMedications(data || []);
-    } catch (error) {
-      console.error('Error fetching medications:', error);
+    } catch (err: any) {
+      console.error('Error fetching medications:', err);
+      setError(err?.message || 'Error al cargar medicamentos');
     } finally {
       setLoading(false);
     }
@@ -67,7 +77,7 @@ export default function MedicationsPage() {
     currentPage * pageSize
   );
 
-  if (loading) {
+  if (loading && medications.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -86,6 +96,18 @@ export default function MedicationsPage() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">{error}</p>
+            <Button size="sm" variant="outline" className="mt-2" onClick={fetchMedications}>
+              Reintentar
+            </Button>
+          </div>
+        </div>
+      )}
+
       <Card className="p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -102,14 +124,14 @@ export default function MedicationsPage() {
         </div>
       </Card>
 
-      {medications.length === 0 ? (
+      {medications.length === 0 && !error ? (
         <Card className="p-12 text-center">
           <Pill className="w-16 h-16 mx-auto text-slate-300 dark:text-slate-600 mb-4" />
           <h3 className="text-lg font-medium text-slate-900 dark:text-white mb-2">
             No hay medicamentos
           </h3>
           <p className="text-slate-500 dark:text-slate-400">
-            El catálogo está vacío
+            El catálogo está vacío o la tabla no está configurada
           </p>
         </Card>
       ) : (
@@ -179,7 +201,6 @@ export default function MedicationsPage() {
         </>
       )}
 
-      {/* Medication Detail Modal */}
       <Dialog open={!!selectedMedication} onOpenChange={() => setSelectedMedication(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -200,7 +221,6 @@ export default function MedicationsPage() {
 
           {selectedMedication && (
             <div className="space-y-6 max-h-[60vh] overflow-y-auto">
-              {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 {selectedMedication.active_ingredient && (
                   <div>
@@ -216,7 +236,6 @@ export default function MedicationsPage() {
                 )}
               </div>
 
-              {/* Forms & Routes */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-slate-500 mb-2">Formas Farmacéuticas</p>
@@ -236,7 +255,6 @@ export default function MedicationsPage() {
                 </div>
               </div>
 
-              {/* Indications */}
               {selectedMedication.indications && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2 flex items-center gap-1">
@@ -247,7 +265,6 @@ export default function MedicationsPage() {
                 </div>
               )}
 
-              {/* Contraindications */}
               {selectedMedication.contraindications && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2 flex items-center gap-1">
@@ -258,7 +275,6 @@ export default function MedicationsPage() {
                 </div>
               )}
 
-              {/* Side Effects */}
               {selectedMedication.side_effects && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2">Efectos Adversos</p>
@@ -266,7 +282,6 @@ export default function MedicationsPage() {
                 </div>
               )}
 
-              {/* Precautions */}
               {selectedMedication.precautions && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2">Precauciones</p>
@@ -274,7 +289,6 @@ export default function MedicationsPage() {
                 </div>
               )}
 
-              {/* Interactions */}
               {selectedMedication.interactions && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2">Interacciones</p>
@@ -282,7 +296,6 @@ export default function MedicationsPage() {
                 </div>
               )}
 
-              {/* Storage */}
               {selectedMedication.storage && (
                 <div>
                   <p className="text-sm text-slate-500 mb-2">Almacenamiento</p>

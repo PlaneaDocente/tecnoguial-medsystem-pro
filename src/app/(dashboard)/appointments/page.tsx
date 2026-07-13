@@ -23,6 +23,7 @@ import {
   DialogFooter
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import type { Appointment, Patient } from '@/lib/types';
 
 type AppointmentWithPatient = Appointment & {
@@ -45,6 +46,7 @@ export default function AppointmentsPage() {
   const { user } = useAuth();
   const [appointments, setAppointments] = useState<AppointmentWithPatient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [currentDate, setCurrentDate] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showAppointmentModal, setShowAppointmentModal] = useState(false);
@@ -53,11 +55,13 @@ export default function AppointmentsPage() {
   const fetchAppointments = useCallback(async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
+    
     try {
       const firstDay = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const lastDay = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
-      const { data, error } = await supabase
+      const { data, error: queryError } = await supabase
         .from('appointments')
         .select('*, patient:patients(id, first_name, last_name, phone)')
         .eq('user_id', user.id)
@@ -66,10 +70,11 @@ export default function AppointmentsPage() {
         .order('date')
         .order('start_time');
 
-      if (error) throw error;
+      if (queryError) throw queryError;
       setAppointments(data || []);
-    } catch (error) {
-      console.error('Error fetching appointments:', error);
+    } catch (err: any) {
+      console.error('Error fetching appointments:', err);
+      setError(err?.message || 'Error al cargar citas');
     } finally {
       setLoading(false);
     }
@@ -128,17 +133,18 @@ export default function AppointmentsPage() {
 
   const updateAppointmentStatus = useCallback(async (appointmentId: string, status: Appointment['status']) => {
     try {
-      // ✅ FIX: supabase as any en toda la cadena para evitar never
-      const { error } = await (supabase as any)
+      const { error: updateError } = await supabase
         .from('appointments')
         .update({ status })
         .eq('id', appointmentId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
       setAppointments(prev => prev.map(a => a.id === appointmentId ? { ...a, status } : a));
       setShowAppointmentModal(false);
-    } catch (error) {
-      console.error('Error updating appointment:', error);
+      toast.success('Estado actualizado correctamente');
+    } catch (err: any) {
+      console.error('Error updating appointment:', err);
+      toast.error(err?.message || 'Error al actualizar estado');
     }
   }, []);
 
@@ -162,7 +168,7 @@ export default function AppointmentsPage() {
 
   const weekDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
-  if (loading) {
+  if (loading && appointments.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent" />
@@ -182,6 +188,13 @@ export default function AppointmentsPage() {
           Nueva Cita
         </Link>
       </div>
+
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {error}
+        </div>
+      )}
 
       <Card className="p-6">
         <div className="flex items-center justify-between mb-6">

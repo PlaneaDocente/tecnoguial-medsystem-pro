@@ -1,165 +1,209 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import type { User, AuthError } from "@supabase/supabase-js";
 
-type User = any;
-type Profile = any;
+interface Profile {
+  id: string;
+  full_name: string | null;
+  avatar_url: string | null;
+  role: string | null;
+}
 
 interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  isAuthenticated: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: boolean; message: string }>;
-  signUp: (email: string, password: string, metadata?: any) => Promise<{ error: boolean; message: string }>;
+  error: string | null;
+  signIn: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: boolean; message: string }>;
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
   loading: true,
-  isAuthenticated: false,
-  signIn: async () => ({ error: true, message: "No implementado" }),
-  signUp: async () => ({ error: true, message: "No implementado" }),
+  error: null,
+  signIn: async () => ({ success: false }),
   signOut: async () => {},
-  resetPassword: async () => ({ error: true, message: "No implementado" }),
+  refreshSession: async () => {},
 });
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  const handleAuthError = useCallback((err: AuthError | Error | unknown) => {
+    const message = err instanceof Error ? err.message : "Error de autenticacion";
+    console.warn("[Auth] Error controlado:", message);
+
+    if (
+      message.includes("Invalid Refresh Token") ||
+      message.includes("refresh_token_not_found") ||
+      message.includes("JWT expired") ||
+      message.includes("token is expired")
+    ) {
+      if (typeof window !== "undefined") {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith("sb-"));
+        keys.forEach((k) => localStorage.removeItem(k));
+      }
+      setUser(null);
+      setProfile(null);
+      setError("Sesion expirada. Inicia sesion nuevamente.");
+    } else {
+      setError(message);
+    }
+  }, []);
+
+  const fetchProfile = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name, avatar_url, role")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) throw error;
+      setProfile(data as Profile | null);
+    } catch (err) {
+      console.warn("[Auth] Error cargando perfil:", err);
+      setProfile(null);
+    }
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    try {
+      const { data, error: refreshError } = await supabase.auth.refreshSession();
+      if (refreshError) throw refreshError;
+      setUser(data.session?.user ?? null);
+      if (data.session?.user) await fetchProfile(data.session.user.id);
+      setError(null);
+    } catch (err) {
+      handleAuthError(err);
+    }
+  }, [handleAuthError, fetchProfile]);
+
+  // ==========================================================
+  // INICIALIZACION CON TIMEOUT DE SEGURIDAD (CRITICAL FIX)
+  // ==========================================================
   useEffect(() => {
     let mounted = true;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const initAuth = async () => {
       try {
+        // TIMEOUT DE SEGURIDAD: si Supabase no responde en 6s, forzar fin de carga
         timeoutId = setTimeout(() => {
           if (mounted) {
-            console.warn("⏱️ [useAuth] Timeout de autenticación. Continuando sin sesión.");
+            console.warn("[Auth] Timeout de inicializacion (6s). Forzando fin de carga.");
             setLoading(false);
+            setError("No se pudo conectar con el servidor de autenticacion.");
           }
-        }, 3000);
+        }, 6000);
 
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data, error: sessionError } = await supabase.auth.getSession();
+
+        // Si ya se disparo el timeout, no actualizar estado
         if (!mounted) return;
 
-        if (session?.user) {
-          setUser(session.user);
-          try {
-            const { data: profileData } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", session.user.id)
-              .maybeSingle();
-            if (mounted) setProfile(profileData);
-          } catch (e) {
-            console.warn("Perfil no cargado:", e);
+        if (sessionError) {
+          if (
+            sessionError.message?.includes("Invalid Refresh Token") ||
+            sessionError.message?.includes("refresh_token_not_found")
+          ) {
+            handleAuthError(sessionError);
+            if (mounted) setLoading(false);
+            if (timeoutId) clearTimeout(timeoutId);
+            return;
           }
+          throw sessionError;
         }
-      } catch (error) {
-        console.error("Error de autenticación:", error);
-      } finally {
+
         if (mounted) {
-          clearTimeout(timeoutId);
+          setUser(data.session?.user ?? null);
+          if (data.session?.user) await fetchProfile(data.session.user.id);
           setLoading(false);
         }
+      } catch (err) {
+        if (mounted) {
+          handleAuthError(err);
+          setLoading(false);
+        }
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
       }
     };
 
     initAuth();
 
-    let listener: any;
-    try {
-      const result = supabase.auth.onAuthStateChange((_event, session) => {
-        if (!mounted) return;
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setProfile(null);
+        setError(null);
+      } else if (event === "TOKEN_REFRESHED") {
         setUser(session?.user ?? null);
-        if (!session?.user) setProfile(null);
-      });
-      listener = result?.data?.subscription ? result : { subscription: { unsubscribe: () => {} } };
-    } catch (e) {
-      listener = { subscription: { unsubscribe: () => {} } };
-    }
+        if (session?.user) fetchProfile(session.user.id);
+      } else if (session) {
+        setUser(session.user);
+        setError(null);
+        fetchProfile(session.user.id);
+      }
+    });
 
     return () => {
       mounted = false;
-      clearTimeout(timeoutId);
-      try { listener?.subscription?.unsubscribe(); } catch {}
+      if (timeoutId) clearTimeout(timeoutId);
+      listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [handleAuthError, fetchProfile]);
 
-  const signIn = async (email: string, password: string): Promise<{ error: boolean; message: string }> => {
-    try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        // Traducir errores comunes de Supabase al español
-        let msg = error.message;
-        if (msg.includes("Invalid login")) msg = "Correo o contraseña incorrectos.";
-        else if (msg.includes("Email not confirmed")) msg = "Confirma tu correo electrónico antes de iniciar sesión.";
-        else if (msg.includes("Supabase no está configurado")) msg = "Servidor no disponible. Contacta al administrador.";
-        return { error: true, message: msg };
-      }
-      if (data.user) {
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      try {
+        setError(null);
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError) throw signInError;
+
         setUser(data.user);
-        // Cargar perfil inmediatamente después de login
-        try {
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", data.user.id)
-            .maybeSingle();
-          setProfile(profileData);
-        } catch {}
+        if (data.user) await fetchProfile(data.user.id);
+        return { success: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Error al iniciar sesion";
+        setError(message);
+        return { success: false, error: message };
       }
-      return { error: false, message: "Sesión iniciada correctamente" };
-    } catch (err: any) {
-      return { error: true, message: err?.message || "Error al iniciar sesión" };
-    }
-  };
+    },
+    [fetchProfile]
+  );
 
-  const signUp = async (email: string, password: string, metadata?: any): Promise<{ error: boolean; message: string }> => {
+  const signOut = useCallback(async () => {
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: metadata },
-      });
-      if (error) {
-        let msg = error.message;
-        if (msg.includes("already registered")) msg = "Este correo ya está registrado.";
-        return { error: true, message: msg };
+      await supabase.auth.signOut();
+      setUser(null);
+      setProfile(null);
+      setError(null);
+      if (typeof window !== "undefined") {
+        const keys = Object.keys(localStorage).filter((k) => k.startsWith("sb-"));
+        keys.forEach((k) => localStorage.removeItem(k));
       }
-      return { error: false, message: "Registro exitoso. Revisa tu correo para confirmar." };
-    } catch (err: any) {
-      return { error: true, message: err?.message || "Error al registrar" };
+    } catch (err) {
+      handleAuthError(err);
     }
-  };
-
-  const signOut = async () => {
-    try { await supabase.auth.signOut(); } catch {}
-    setUser(null);
-    setProfile(null);
-  };
-
-  const resetPassword = async (email: string): Promise<{ error: boolean; message: string }> => {
-    try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: typeof window !== "undefined" ? `${window.location.origin}/reset-password` : undefined,
-      });
-      if (error) return { error: true, message: error.message };
-      return { error: false, message: "Revisa tu correo para restablecer la contraseña." };
-    } catch (err: any) {
-      return { error: true, message: err?.message || "Error al enviar email" };
-    }
-  };
+  }, [handleAuthError]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAuthenticated: !!user, signIn, signUp, signOut, resetPassword }}>
+    <AuthContext.Provider value={{ user, profile, loading, error, signIn, signOut, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );

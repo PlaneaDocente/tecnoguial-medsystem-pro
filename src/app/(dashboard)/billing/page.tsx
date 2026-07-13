@@ -6,8 +6,6 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X } from "lucide-react";
-
 import {
   CreditCard,
   Check,
@@ -16,7 +14,8 @@ import {
   User,
   Download,
   ExternalLink,
-  DollarSign
+  DollarSign,
+  X
 } from 'lucide-react';
 
 const plans = [
@@ -91,6 +90,7 @@ export default function BillingPage() {
   const [subscription, setSubscription] = useState<any>(null);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
@@ -100,26 +100,30 @@ export default function BillingPage() {
   const fetchBillingData = async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
 
     try {
-      const { data: subData } = await supabase
+      const { data: subData, error: subError } = await supabase
         .from('subscriptions')
         .select('*')
         .eq('user_id', user.id)
         .maybeSingle();
 
+      if (subError) throw subError;
       setSubscription(subData);
 
-      const { data: invoicesData } = await supabase
+      const { data: invoicesData, error: invError } = await supabase
         .from('invoices')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(5);
 
+      if (invError) throw invError;
       setInvoices(invoicesData || []);
-    } catch (error) {
-      console.error('Error fetching billing data:', error);
+    } catch (err: any) {
+      console.error('Error fetching billing data:', err);
+      setError(err?.message || 'Error al cargar datos de facturación');
     } finally {
       setLoading(false);
     }
@@ -140,7 +144,7 @@ export default function BillingPage() {
     return styles[status] || styles.trialing;
   };
 
-  if (loading) {
+  if (loading && !subscription) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -157,7 +161,12 @@ export default function BillingPage() {
         </p>
       </div>
 
-      {/* Current Subscription */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       {subscription && (
         <Card className="p-6">
           <div className="flex items-center justify-between">
@@ -191,7 +200,6 @@ export default function BillingPage() {
         </Card>
       )}
 
-      {/* Plan Selection */}
       <div>
         <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
           Planes de Suscripción
@@ -291,7 +299,6 @@ export default function BillingPage() {
         </div>
       </div>
 
-      {/* Invoice History */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
@@ -344,7 +351,6 @@ export default function BillingPage() {
         )}
       </Card>
 
-      {/* Payment Method */}
       <Card className="p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">

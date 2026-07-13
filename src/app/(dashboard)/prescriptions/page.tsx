@@ -7,7 +7,6 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { SignaturePad } from '@/components/ui/signature-pad';
 import {
   FileText,
   Plus,
@@ -38,10 +37,10 @@ export default function PrescriptionsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showSignaturePad, setShowSignaturePad] = useState(false);
   const [doctorSignature, setDoctorSignature] = useState<string | null>(null);
   const [doctorLicense, setDoctorLicense] = useState<string>('');
 
@@ -52,11 +51,6 @@ export default function PrescriptionsPage() {
   useEffect(() => {
     if (user) {
       fetchData();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
       fetchDoctorProfile();
     }
   }, [user]);
@@ -64,6 +58,7 @@ export default function PrescriptionsPage() {
   const fetchData = async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
 
     try {
       const [patientsRes, medsRes] = await Promise.all([
@@ -71,10 +66,14 @@ export default function PrescriptionsPage() {
         supabase.from('medications_catalog').select('*').eq('is_active', true).order('generic_name')
       ]);
 
+      if (patientsRes.error) throw patientsRes.error;
+      if (medsRes.error) throw medsRes.error;
+
       setPatients(patientsRes.data || []);
       setMedications(medsRes.data || []);
-    } catch (error) {
-      console.error('Error fetching data:', error);
+    } catch (err: any) {
+      console.error('Error fetching data:', err);
+      setError(err?.message || 'Error al cargar datos');
     } finally {
       setLoading(false);
     }
@@ -83,14 +82,18 @@ export default function PrescriptionsPage() {
   const fetchDoctorProfile = async () => {
     if (!user) return;
 
-    const { data } = await supabase
-      .from('profiles')
-      .select('license_number')
-      .eq('id', user.id)
-      .single();
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('license_number')
+        .eq('id', user.id)
+        .single();
 
-    if (data?.license_number) {
-      setDoctorLicense(data.license_number);
+      if (data?.license_number) {
+        setDoctorLicense(data.license_number);
+      }
+    } catch (err) {
+      console.warn('Error fetching doctor profile:', err);
     }
   };
 
@@ -126,19 +129,13 @@ export default function PrescriptionsPage() {
     }
   };
 
-  const handleSaveSignature = (signatureDataUrl: string) => {
-    setDoctorSignature(signatureDataUrl);
-    setShowSignaturePad(false);
-    toast.success('Firma guardada');
-  };
-
-  const handleGeneratePrescription = () => {
+  const handleGeneratePrescription = async () => {
     if (!selectedPatient || prescriptionItems.length === 0) {
       toast.error('Selecciona un paciente y agrega medicamentos');
       return;
     }
 
-    toast.promise(async () => {
+    try {
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name')
@@ -188,11 +185,11 @@ export default function PrescriptionsPage() {
       setPrescriptionItems([
         { medication_id: '', medication_name: '', dosage: '', frequency: '', duration: '', route: 'oral', observations: '' }
       ]);
-    }, {
-      loading: 'Generando receta...',
-      success: 'Receta generada exitosamente',
-      error: 'Error al generar receta'
-    });
+      toast.success('Receta generada exitosamente');
+    } catch (err: any) {
+      console.error('Error generating prescription:', err);
+      toast.error(err?.message || 'Error al generar receta');
+    }
   };
 
   const resetForm = () => {
@@ -203,7 +200,7 @@ export default function PrescriptionsPage() {
     setDoctorSignature(null);
   };
 
-  if (loading) {
+  if (loading && patients.length === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -226,7 +223,12 @@ export default function PrescriptionsPage() {
         </Button>
       </div>
 
-      {/* Quick Search */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <Card className="p-4">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -263,11 +265,10 @@ export default function PrescriptionsPage() {
         )}
       </Card>
 
-      {/* Create Prescription Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-800 rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <div className="p-6 border-b sticky top-0 bg-white dark:bg-slate-800">
+            <div className="p-6 border-b sticky top-0 bg-white dark:bg-slate-800 z-10">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold">Nueva Receta Medica</h2>
                 <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="p-2 hover:bg-slate-100 rounded-lg">
@@ -277,7 +278,6 @@ export default function PrescriptionsPage() {
             </div>
 
             <div className="p-6 space-y-6">
-              {/* Patient Selection */}
               <div>
                 <label className="block text-sm font-medium mb-2">Paciente</label>
                 {selectedPatient ? (
@@ -323,7 +323,6 @@ export default function PrescriptionsPage() {
                 )}
               </div>
 
-              {/* Prescription Items */}
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <label className="text-sm font-medium">Medicamentos</label>
@@ -356,7 +355,7 @@ export default function PrescriptionsPage() {
                             <option value="">Seleccionar medicamento...</option>
                             {medications.map(med => (
                               <option key={med.id} value={med.id}>
-                                {med.generic_name} {med.brand_names.length > 0 ? `(${med.brand_names[0]})` : ''}
+                                {med.generic_name} {med.brand_names?.length > 0 ? `(${med.brand_names[0]})` : ''}
                               </option>
                             ))}
                           </select>
@@ -384,7 +383,7 @@ export default function PrescriptionsPage() {
                             <option value="Cada 24 horas">Cada 24 horas</option>
                             <option value="Cada 6 horas">Cada 6 horas</option>
                             <option value="Cada 4 horas">Cada 4 horas</option>
-                            <option value="Solo en la manana">Solo en la manana</option>
+                            <option value="Solo en la manana">Solo en la mañana</option>
                             <option value="Solo en la noche">Solo en la noche</option>
                             <option value="Cada que sea necesario">Cada que sea necesario</option>
                           </select>
@@ -432,7 +431,6 @@ export default function PrescriptionsPage() {
                 </div>
               </div>
 
-              {/* Signature */}
               <div>
                 <label className="block text-sm font-medium mb-2">Firma del Medico</label>
                 {doctorSignature ? (
@@ -445,7 +443,7 @@ export default function PrescriptionsPage() {
                     </div>
                   </div>
                 ) : (
-                  <Button variant="outline" onClick={() => setShowSignaturePad(true)} className="w-full">
+                  <Button variant="outline" onClick={() => toast.info('Función de firma digital en desarrollo')} className="w-full">
                     <FileText className="w-4 h-4 mr-2" />
                     Dibujar Firma Digital
                   </Button>
@@ -466,15 +464,6 @@ export default function PrescriptionsPage() {
         </div>
       )}
 
-      {/* Signature Pad Modal */}
-      <SignaturePad
-        open={showSignaturePad}
-        onOpenChange={setShowSignaturePad}
-        onSave={handleSaveSignature}
-        onClear={() => setDoctorSignature(null)}
-      />
-
-      {/* Info Card */}
       <Card className="p-6">
         <div className="flex items-start gap-4">
           <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">

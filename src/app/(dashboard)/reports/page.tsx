@@ -14,16 +14,9 @@ import {
   Users,
   TrendingUp,
   BarChart3,
-  PieChart as PieChartIcon,
-  Filter
+  Filter,
+  AlertCircle
 } from 'lucide-react';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from '@/components/ui/select';
 import {
   LineChart,
   Line,
@@ -47,6 +40,7 @@ const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 export default function ReportsPage() {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [dateRange, setDateRange] = useState('month');
   const [stats, setStats] = useState({
     totalPatients: 0,
@@ -64,6 +58,7 @@ export default function ReportsPage() {
   const fetchReportData = async () => {
     if (!user) return;
     setLoading(true);
+    setError('');
 
     try {
       const now = new Date();
@@ -86,27 +81,23 @@ export default function ReportsPage() {
           startDate = new Date(now.getFullYear(), now.getMonth(), 1);
       }
 
-      // Total patients
       const { count: totalPatients } = await supabase
         .from('patients')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id);
 
-      // New patients in period
       const { count: newPatients } = await supabase
         .from('patients')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .gte('created_at', startDate.toISOString());
 
-      // Total consultations
       const { count: totalConsultations } = await supabase
         .from('consultations')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', user.id)
         .gte('consultation_date', startDate.toISOString());
 
-      // Consultations by type
       const { data: consultations } = await supabase
         .from('consultations')
         .select('type')
@@ -125,7 +116,6 @@ export default function ReportsPage() {
         { name: 'Urgencia', value: typeCount.urgencia || 0 }
       ];
 
-      // Patients by month (last 6 months)
       const patientsByMonth: { month: string; count: number }[] = [];
       for (let i = 5; i >= 0; i--) {
         const date = new Date();
@@ -146,7 +136,6 @@ export default function ReportsPage() {
         });
       }
 
-      // Top diagnoses
       const { data: allConsultations } = await supabase
         .from('consultations')
         .select('diagnosis_names')
@@ -173,8 +162,9 @@ export default function ReportsPage() {
         patientsByMonth,
         topDiagnoses
       });
-    } catch (error) {
-      console.error('Error fetching report data:', error);
+    } catch (err: any) {
+      console.error('Error fetching report data:', err);
+      setError(err?.message || 'Error al cargar reportes');
     } finally {
       setLoading(false);
     }
@@ -183,7 +173,7 @@ export default function ReportsPage() {
   const exportPDF = async () => {
     if (!user) return;
 
-    toast.promise(async () => {
+    try {
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name')
@@ -198,7 +188,6 @@ export default function ReportsPage() {
 
       const doc = new jsPDF();
 
-      // Header
       doc.setFontSize(20);
       doc.setTextColor(0, 102, 204);
       doc.text('Reporte de Estadisticas', 105, 20, { align: 'center' });
@@ -208,7 +197,6 @@ export default function ReportsPage() {
       doc.text(`Generado por: ${profile?.full_name || 'Doctor'}`, 105, 30, { align: 'center' });
       doc.text(`Fecha: ${new Date().toLocaleDateString('es-ES')}`, 105, 38, { align: 'center' });
 
-      // Summary
       doc.setFontSize(14);
       doc.setTextColor(0, 0, 0);
       doc.text('Resumen General', 15, 55);
@@ -219,7 +207,6 @@ export default function ReportsPage() {
       doc.text(`Nuevos Pacientes: ${stats.newPatients}`, 15, 72);
       doc.text(`Total Consultas: ${stats.totalConsultations}`, 15, 79);
 
-      // Patients table
       if (patients && patients.length > 0) {
         doc.setFontSize(14);
         doc.setTextColor(0, 0, 0);
@@ -242,17 +229,17 @@ export default function ReportsPage() {
       }
 
       doc.save(`reporte_${new Date().toISOString().split('T')[0]}.pdf`);
-    }, {
-      loading: 'Generando PDF...',
-      success: 'PDF generado exitosamente',
-      error: 'Error al generar PDF'
-    });
+      toast.success('PDF generado exitosamente');
+    } catch (err: any) {
+      console.error('Error exporting PDF:', err);
+      toast.error(err?.message || 'Error al generar PDF');
+    }
   };
 
-  const exportCSV = () => {
+  const exportCSV = async () => {
     if (!user) return;
 
-    toast.promise(async () => {
+    try {
       const { data: patients } = await supabase
         .from('patients')
         .select('*')
@@ -286,14 +273,14 @@ export default function ReportsPage() {
       link.download = `pacientes_${new Date().toISOString().split('T')[0]}.csv`;
       link.click();
       URL.revokeObjectURL(url);
-    }, {
-      loading: 'Exportando CSV...',
-      success: 'CSV exportado exitosamente',
-      error: 'Error al exportar CSV'
-    });
+      toast.success('CSV exportado exitosamente');
+    } catch (err: any) {
+      console.error('Error exporting CSV:', err);
+      toast.error(err?.message || 'Error al exportar CSV');
+    }
   };
 
-  if (loading) {
+  if (loading && stats.totalPatients === 0) {
     return (
       <div className="flex items-center justify-center h-96">
         <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-600 border-t-transparent"></div>
@@ -322,7 +309,13 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Date Range Filter */}
+      {error && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4" />
+          {error}
+        </div>
+      )}
+
       <Card className="p-4">
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -352,7 +345,6 @@ export default function ReportsPage() {
         </div>
       </Card>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Card className="p-6">
           <div className="flex items-center justify-between">
@@ -404,9 +396,7 @@ export default function ReportsPage() {
         </Card>
       </div>
 
-      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Patients Evolution */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
             Evolución de Pacientes
@@ -430,7 +420,6 @@ export default function ReportsPage() {
           </div>
         </Card>
 
-        {/* Consultations by Type */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
             Consultas por Tipo
@@ -458,7 +447,6 @@ export default function ReportsPage() {
           </div>
         </Card>
 
-        {/* Top Diagnoses */}
         <Card className="p-6 lg:col-span-2">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
             Diagnósticos Más Comunes
