@@ -54,6 +54,19 @@ export default function PatientDetailPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
+  // Modales para agregar registros clinicos
+  const [showAllergyModal, setShowAllergyModal] = useState(false);
+  const [showAntecedentModal, setShowAntecedentModal] = useState(false);
+  const [showDiseaseModal, setShowDiseaseModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Formulario alergia
+  const [allergyForm, setAllergyForm] = useState({ allergen: '', severity: 'moderate', reaction_type: '' });
+  // Formulario antecedente
+  const [antecedentForm, setAntecedentForm] = useState({ type: 'personal', condition: '', relationship: '' });
+  // Formulario enfermedad cronica
+  const [diseaseForm, setDiseaseForm] = useState({ disease_name: '', status: 'controlled', diagnosis_date: '' });
+
   useEffect(() => {
     if (patientId && patientId !== 'new') {
       fetchPatientData();
@@ -188,6 +201,99 @@ export default function PatientDetailPage() {
     } catch (error: any) {
       toast.error(error?.message || 'Error al eliminar archivo');
     }
+  };
+
+  // ----- Alergias -----
+  const handleAddAllergy = async () => {
+    if (!allergyForm.allergen.trim()) { toast.error('Ingresa el alergeno'); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('patient_allergies').insert({
+        patient_id: patientId,
+        allergen: allergyForm.allergen.trim(),
+        severity: allergyForm.severity,
+        reaction_type: allergyForm.reaction_type.trim() || null,
+      });
+      if (error) throw error;
+      toast.success('Alergia agregada');
+      setShowAllergyModal(false);
+      setAllergyForm({ allergen: '', severity: 'moderate', reaction_type: '' });
+      fetchPatientData();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al guardar alergia');
+    } finally { setSaving(false); }
+  };
+
+  const handleDeleteAllergy = async (id: string) => {
+    if (!confirm('¿Eliminar esta alergia?')) return;
+    try {
+      const { error } = await supabase.from('patient_allergies').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Alergia eliminada');
+      fetchPatientData();
+    } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
+  };
+
+  // ----- Antecedentes -----
+  const handleAddAntecedent = async () => {
+    if (!antecedentForm.condition.trim()) { toast.error('Ingresa la condicion'); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('patient_antecedents').insert({
+        patient_id: patientId,
+        type: antecedentForm.type,
+        condition: antecedentForm.condition.trim(),
+        relationship: antecedentForm.relationship.trim() || null,
+      });
+      if (error) throw error;
+      toast.success('Antecedente agregado');
+      setShowAntecedentModal(false);
+      setAntecedentForm({ type: 'personal', condition: '', relationship: '' });
+      fetchPatientData();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al guardar antecedente');
+    } finally { setSaving(false); }
+  };
+
+  const handleDeleteAntecedent = async (id: string) => {
+    if (!confirm('¿Eliminar este antecedente?')) return;
+    try {
+      const { error } = await supabase.from('patient_antecedents').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Antecedente eliminado');
+      fetchPatientData();
+    } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
+  };
+
+  // ----- Enfermedades cronicas -----
+  const handleAddDisease = async () => {
+    if (!diseaseForm.disease_name.trim()) { toast.error('Ingresa el nombre'); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('patient_chronic_diseases').insert({
+        patient_id: patientId,
+        disease_name: diseaseForm.disease_name.trim(),
+        status: diseaseForm.status,
+        diagnosis_date: diseaseForm.diagnosis_date || null,
+      });
+      if (error) throw error;
+      toast.success('Enfermedad cronica agregada');
+      setShowDiseaseModal(false);
+      setDiseaseForm({ disease_name: '', status: 'controlled', diagnosis_date: '' });
+      fetchPatientData();
+    } catch (error: any) {
+      toast.error(error?.message || 'Error al guardar enfermedad');
+    } finally { setSaving(false); }
+  };
+
+  const handleDeleteDisease = async (id: string) => {
+    if (!confirm('¿Eliminar esta enfermedad?')) return;
+    try {
+      const { error } = await supabase.from('patient_chronic_diseases').delete().eq('id', id);
+      if (error) throw error;
+      toast.success('Enfermedad eliminada');
+      fetchPatientData();
+    } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
   };
 
   const getAge = (birthDate: string | null) => {
@@ -432,7 +538,7 @@ export default function PatientDetailPage() {
               <Card className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-slate-900 dark:text-white">Alergias</h3>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => setShowAllergyModal(true)}>
                     <Plus className="w-4 h-4 mr-2" />
                     Agregar
                   </Button>
@@ -447,9 +553,14 @@ export default function PatientDetailPage() {
                           <p className="font-medium">{allergy.allergen}</p>
                           <p className="text-sm text-slate-500">{allergy.reaction_type || 'Sin descripción'}</p>
                         </div>
-                        <Badge className={getSeverityBadge(allergy.severity)}>
-                          {allergy.severity}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge className={getSeverityBadge(allergy.severity)}>
+                            {allergy.severity}
+                          </Badge>
+                          <button onClick={() => handleDeleteAllergy(allergy.id)} className="p-1 text-slate-400 hover:text-red-500">
+                            <Trash className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -461,7 +572,7 @@ export default function PatientDetailPage() {
               <Card className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-slate-900 dark:text-white">Antecedentes</h3>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => setShowAntecedentModal(true)}>
                     <Plus className="w-4 h-4 mr-2" />
                     Agregar
                   </Button>
@@ -480,11 +591,16 @@ export default function PatientDetailPage() {
                           </h4>
                           <div className="space-y-2">
                             {items.map(antecedent => (
-                              <div key={antecedent.id} className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
-                                <p className="font-medium">{antecedent.condition}</p>
-                                {antecedent.relationship && (
-                                  <p className="text-sm text-slate-500">{antecedent.relationship}</p>
-                                )}
+                              <div key={antecedent.id} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                                <div>
+                                  <p className="font-medium">{antecedent.condition}</p>
+                                  {antecedent.relationship && (
+                                    <p className="text-sm text-slate-500">{antecedent.relationship}</p>
+                                  )}
+                                </div>
+                                <button onClick={() => handleDeleteAntecedent(antecedent.id)} className="p-1 text-slate-400 hover:text-red-500">
+                                  <Trash className="w-4 h-4" />
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -500,7 +616,7 @@ export default function PatientDetailPage() {
               <Card className="p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="font-semibold text-slate-900 dark:text-white">Enfermedades Crónicas</h3>
-                  <Button size="sm">
+                  <Button size="sm" onClick={() => setShowDiseaseModal(true)}>
                     <Plus className="w-4 h-4 mr-2" />
                     Agregar
                   </Button>
@@ -517,9 +633,14 @@ export default function PatientDetailPage() {
                             Diagnosticado: {disease.diagnosis_date || 'N/A'}
                           </p>
                         </div>
-                        <Badge variant={disease.status === 'controlled' ? 'default' : 'destructive'}>
-                          {disease.status === 'controlled' ? 'Controlada' : 'No controlada'}
-                        </Badge>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={disease.status === 'controlled' ? 'default' : 'destructive'}>
+                            {disease.status === 'controlled' ? 'Controlada' : 'No controlada'}
+                          </Badge>
+                          <button onClick={() => handleDeleteDisease(disease.id)} className="p-1 text-slate-400 hover:text-red-500">
+                            <Trash className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -682,6 +803,113 @@ export default function PatientDetailPage() {
                 <Button onClick={handleUpload} disabled={uploading}>
                   {uploading ? 'Subiendo...' : 'Subir'}
                 </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Agregar Alergia */}
+      {showAllergyModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Agregar Alergia</h3>
+              <button onClick={() => setShowAllergyModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Alérgeno *</label>
+                <Input value={allergyForm.allergen} onChange={(e) => setAllergyForm({ ...allergyForm, allergen: e.target.value })} placeholder="Ej. Penicilina" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Severidad</label>
+                <select className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent" value={allergyForm.severity} onChange={(e) => setAllergyForm({ ...allergyForm, severity: e.target.value })}>
+                  <option value="mild">Leve</option>
+                  <option value="moderate">Moderada</option>
+                  <option value="severe">Severa</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Tipo de reacción (opcional)</label>
+                <Input value={allergyForm.reaction_type} onChange={(e) => setAllergyForm({ ...allergyForm, reaction_type: e.target.value })} placeholder="Ej. Urticaria" />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowAllergyModal(false)}>Cancelar</Button>
+                <Button onClick={handleAddAllergy} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Agregar Antecedente */}
+      {showAntecedentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Agregar Antecedente</h3>
+              <button onClick={() => setShowAntecedentModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Tipo</label>
+                <select className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent" value={antecedentForm.type} onChange={(e) => setAntecedentForm({ ...antecedentForm, type: e.target.value })}>
+                  <option value="personal">Personal</option>
+                  <option value="family">Familiar</option>
+                  <option value="surgical">Quirúrgico</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Condición *</label>
+                <Input value={antecedentForm.condition} onChange={(e) => setAntecedentForm({ ...antecedentForm, condition: e.target.value })} placeholder="Ej. Diabetes tipo 2" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Parentesco (opcional)</label>
+                <Input value={antecedentForm.relationship} onChange={(e) => setAntecedentForm({ ...antecedentForm, relationship: e.target.value })} placeholder="Ej. Madre" />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowAntecedentModal(false)}>Cancelar</Button>
+                <Button onClick={handleAddAntecedent} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Agregar Enfermedad Cronica */}
+      {showDiseaseModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Agregar Enfermedad Crónica</h3>
+              <button onClick={() => setShowDiseaseModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nombre de la enfermedad *</label>
+                <Input value={diseaseForm.disease_name} onChange={(e) => setDiseaseForm({ ...diseaseForm, disease_name: e.target.value })} placeholder="Ej. Hipertensión" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Estado</label>
+                <select className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent" value={diseaseForm.status} onChange={(e) => setDiseaseForm({ ...diseaseForm, status: e.target.value })}>
+                  <option value="controlled">Controlada</option>
+                  <option value="uncontrolled">No controlada</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Fecha de diagnóstico (opcional)</label>
+                <Input type="date" value={diseaseForm.diagnosis_date} onChange={(e) => setDiseaseForm({ ...diseaseForm, diagnosis_date: e.target.value })} />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowDiseaseModal(false)}>Cancelar</Button>
+                <Button onClick={handleAddDisease} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
               </div>
             </div>
           </div>
