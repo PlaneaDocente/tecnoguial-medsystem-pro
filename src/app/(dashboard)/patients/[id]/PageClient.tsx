@@ -48,6 +48,7 @@ export default function PatientDetailPage() {
   const [consultations, setConsultations] = useState<Consultation[]>([]);
   const [loading, setLoading] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadCategory, setUploadCategory] = useState<"laboratory" | "imaging" | "clinical" | "prescription" | "other">('laboratory');
   const [uploadNotes, setUploadNotes] = useState('');
@@ -674,8 +675,8 @@ export default function PatientDetailPage() {
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {files.map(file => (
                       <div key={file.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg relative group">
-                        {file.file_url?.match(/\.(jpg|jpeg|png|gif)$/i) ? (
-                          <ImageIcon className="w-8 h-8 text-blue-500 mb-2" />
+                        {file.file_url?.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                          <img src={file.file_url} alt={file.file_name} onClick={() => setLightboxImage(file.file_url)} className="w-full h-32 object-cover rounded-md mb-2 cursor-pointer hover:opacity-90 transition" />
                         ) : (
                           <FileText className="w-8 h-8 text-blue-500 mb-2" />
                         )}
@@ -913,6 +914,14 @@ export default function PatientDetailPage() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+      {lightboxImage && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setLightboxImage(null)}>
+          <button onClick={() => setLightboxImage(null)} className="absolute top-4 right-4 text-white p-2 hover:bg-white/20 rounded-full">
+            <X className="w-6 h-6" />
+          </button>
+          <img src={lightboxImage} alt="Vista ampliada" onClick={(e) => e.stopPropagation()} className="max-w-full max-h-full object-contain rounded-lg" />
         </div>
       )}
     </div>
