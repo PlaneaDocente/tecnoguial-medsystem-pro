@@ -4,6 +4,8 @@
 
 @layer base {
   :root {
+    --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
     --radius: 0.625rem;
     --background: 0 0% 100%;
     --foreground: 0 0% 9%;

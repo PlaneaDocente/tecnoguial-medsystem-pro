@@ -307,7 +307,7 @@ export default function AppointmentsPage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><p className="text-slate-500">Fecha</p><p className="font-medium">{parseLocalDate(selectedAppointment.date).toLocaleDateString('es-ES')}</p></div>
+                <div><p className="text-slate-500">Fecha</p><p className="font-medium">{parseLocalDate(String(selectedAppointment.date).slice(0, 10)).toLocaleDateString('es-ES')}</p></div>
                 <div><p className="text-slate-500">Tipo</p><p className="font-medium capitalize">{selectedAppointment.type}</p></div>
                 <div><p className="text-slate-500">Duración</p><p className="font-medium">{selectedAppointment.duration_minutes} minutos</p></div>
                 <div><p className="text-slate-500">Estado</p><Badge className={getStatusColor(selectedAppointment.status)}>{getStatusLabel(selectedAppointment.status)}</Badge></div>
