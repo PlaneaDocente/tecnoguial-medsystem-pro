@@ -163,6 +163,34 @@ export default function PrescriptionsPage() {
         throw new Error('Agrega al menos un medicamento');
       }
 
+      // Guardar la receta en la base de datos
+      const { data: newPrescription, error: presError } = await supabase
+        .from('prescriptions')
+        .insert({
+          user_id: user?.id,
+          patient_id: selectedPatient.id,
+          prescription_date: new Date().toISOString(),
+          status: 'active',
+          notes: prescriptions.map(p => p.observations).filter(Boolean).join('; ') || null,
+        })
+        .select()
+        .single();
+
+      if (presError) throw presError;
+
+      if (newPrescription) {
+        const itemsToInsert = prescriptions.map(p => ({
+          prescription_id: newPrescription.id,
+          medication_name: p.medication_name,
+          dosage: p.dosage,
+          frequency: p.frequency,
+          duration: p.duration,
+          instructions: [p.route ? `Via: ${p.route}` : '', p.observations || ''].filter(Boolean).join(' - ') || null,
+        }));
+        const { error: itemsError } = await supabase.from('prescription_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+      }
+
       const doc = generatePrescription(
         {
           first_name: selectedPatient.first_name,
