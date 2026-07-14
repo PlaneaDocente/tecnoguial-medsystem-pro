@@ -23,6 +23,7 @@ import {
   DialogTitle
 } from '@/components/ui/dialog';
 import type { Medication } from '@/lib/types';
+import { toast } from 'sonner';
 
 export default function MedicationsPage() {
   const { user } = useAuth();
@@ -32,6 +33,9 @@ export default function MedicationsPage() {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMedication, setSelectedMedication] = useState<Medication | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [medForm, setMedForm] = useState({ generic_name: '', active_ingredient: '', description: '' });
   const pageSize = 12;
 
   useEffect(() => {
@@ -85,6 +89,26 @@ export default function MedicationsPage() {
     );
   }
 
+  const handleAddMedication = async () => {
+    if (!medForm.generic_name.trim()) { toast.error('Ingresa el nombre'); return; }
+    setSaving(true);
+    try {
+      const { error } = await supabase.from('medications_catalog').insert({
+        generic_name: medForm.generic_name.trim(),
+        active_ingredient: medForm.active_ingredient.trim() || null,
+        description: medForm.description.trim() || null,
+        is_active: true,
+      });
+      if (error) throw error;
+      toast.success('Medicamento agregado');
+      setShowAddModal(false);
+      setMedForm({ generic_name: '', active_ingredient: '', description: '' });
+      fetchMedications();
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al guardar');
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -94,6 +118,9 @@ export default function MedicationsPage() {
             Catálogo de medicamentos disponibles
           </p>
         </div>
+        <Button onClick={() => setShowAddModal(true)}>
+          Nuevo Medicamento
+        </Button>
       </div>
 
       {error && (
@@ -306,6 +333,34 @@ export default function MedicationsPage() {
           )}
         </DialogContent>
       </Dialog>
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Nuevo Medicamento</h3>
+              <button onClick={() => setShowAddModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nombre *</label>
+                <Input value={medForm.generic_name} onChange={(e) => setMedForm({ ...medForm, generic_name: e.target.value })} placeholder="Ej. Amoxicilina" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Principio activo / presentación</label>
+                <Input value={medForm.active_ingredient} onChange={(e) => setMedForm({ ...medForm, active_ingredient: e.target.value })} placeholder="Ej. Amoxicilina 500mg" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Descripción</label>
+                <Input value={medForm.description} onChange={(e) => setMedForm({ ...medForm, description: e.target.value })} placeholder="Ej. Antibiótico" />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancelar</Button>
+                <Button onClick={handleAddMedication} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
