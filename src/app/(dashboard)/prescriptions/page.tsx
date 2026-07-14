@@ -123,10 +123,15 @@ export default function PrescriptionsPage() {
 
   const handleMedicationSelect = (index: number, medicationId: string) => {
     const medication = medications.find(m => m.id === medicationId);
-    if (medication) {
-      updatePrescriptionItem(index, 'medication_id', medicationId);
-      updatePrescriptionItem(index, 'medication_name', medication.generic_name);
-    }
+    setPrescriptionItems(prev => {
+      const updated = [...prev];
+      updated[index] = {
+        ...updated[index],
+        medication_id: medicationId,
+        medication_name: medication ? medication.generic_name : '',
+      };
+      return updated;
+    });
   };
 
   const handleGeneratePrescription = async () => {
