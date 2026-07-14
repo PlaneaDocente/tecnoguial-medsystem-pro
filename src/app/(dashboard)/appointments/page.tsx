@@ -102,9 +102,10 @@ export default function AppointmentsPage() {
   const appointmentsByDate = useMemo(() => {
     const map = new Map<string, AppointmentWithPatient[]>();
     appointments.forEach(apt => {
-      const list = map.get(apt.date) || [];
+      const key = String(apt.date).slice(0, 10);
+      const list = map.get(key) || [];
       list.push(apt);
-      map.set(apt.date, list);
+      map.set(key, list);
     });
     return map;
   }, [appointments]);
