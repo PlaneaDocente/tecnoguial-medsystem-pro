@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import {
   Stethoscope,
   Search,
@@ -62,6 +63,11 @@ export default function DiseasesPage() {
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [selectedDisease, setSelectedDisease] = useState<Disease | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [disForm, setDisForm] = useState({
+    name: '', cie10_code: '', description: '', category: 'other', typical_symptoms: '', treatment: ''
+  });
 
   useEffect(() => {
     fetchDiseases();
@@ -112,6 +118,33 @@ export default function DiseasesPage() {
     );
   }
 
+  const handleAddDisease = async () => {
+    if (!disForm.name.trim()) { toast.error('Ingresa el nombre'); return; }
+    setSaving(true);
+    try {
+      const symptomsArray = disForm.typical_symptoms
+        .split(',')
+        .map(sy => sy.trim())
+        .filter(Boolean);
+      const { error } = await supabase.from('diseases_catalog').insert({
+        name: disForm.name.trim(),
+        cie10_code: disForm.cie10_code.trim() || null,
+        description: disForm.description.trim() || null,
+        category: disForm.category,
+        typical_symptoms: symptomsArray.length > 0 ? symptomsArray : null,
+        treatment: disForm.treatment.trim() || null,
+        is_active: true,
+      });
+      if (error) throw error;
+      toast.success('Enfermedad agregada');
+      setShowAddModal(false);
+      setDisForm({ name: '', cie10_code: '', description: '', category: 'other', typical_symptoms: '', treatment: '' });
+      fetchDiseases();
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al guardar');
+    } finally { setSaving(false); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -121,6 +154,9 @@ export default function DiseasesPage() {
             Catálogo de enfermedades y diagnósticos
           </p>
         </div>
+        <Button onClick={() => setShowAddModal(true)}>
+          Nueva Enfermedad
+        </Button>
       </div>
 
       {error && (
@@ -301,6 +337,59 @@ export default function DiseasesPage() {
           )}
         </DialogContent>
       </Dialog>
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-lg w-full my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Nueva Enfermedad</h3>
+              <button onClick={() => setShowAddModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nombre *</label>
+                <Input value={disForm.name} onChange={(e) => setDisForm({ ...disForm, name: e.target.value })} placeholder="Ej. Asma" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Código CIE-10</label>
+                  <Input value={disForm.cie10_code} onChange={(e) => setDisForm({ ...disForm, cie10_code: e.target.value })} placeholder="Ej. J45" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Categoría</label>
+                  <select
+                    className="w-full h-10 px-3 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent"
+                    value={disForm.category}
+                    onChange={(e) => setDisForm({ ...disForm, category: e.target.value })}
+                  >
+                    {Object.entries(categoryLabels).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Descripción</label>
+                <Input value={disForm.description} onChange={(e) => setDisForm({ ...disForm, description: e.target.value })} placeholder="Breve descripción" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Síntomas típicos</label>
+                <Input value={disForm.typical_symptoms} onChange={(e) => setDisForm({ ...disForm, typical_symptoms: e.target.value })} placeholder="Separados por coma: tos, fiebre, fatiga" />
+                <p className="text-xs text-slate-400 mt-1">Sepáralos con comas</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Tratamiento</label>
+                <Input value={disForm.treatment} onChange={(e) => setDisForm({ ...disForm, treatment: e.target.value })} placeholder="Tratamiento sugerido" />
+              </div>
+              <div className="flex gap-2 justify-end pt-2">
+                <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancelar</Button>
+                <Button onClick={handleAddDisease} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
