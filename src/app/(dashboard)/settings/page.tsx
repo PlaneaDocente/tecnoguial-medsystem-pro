@@ -69,9 +69,11 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (extendedProfile) {
+      setAvatarUrl(extendedProfile.avatar_url || null);
       setProfileData({
         full_name: extendedProfile.full_name || '',
         phone: extendedProfile.phone || '',
@@ -129,13 +131,32 @@ export default function SettingsPage() {
         .update({ avatar_url: urlData.publicUrl })
         .eq('id', user.id);
       if (profErr) throw profErr;
-      setExtendedProfile((prev: any) => ({ ...prev, avatar_url: urlData.publicUrl }));
+      setAvatarUrl(urlData.publicUrl);
       toast.success('Foto actualizada');
     } catch (err: any) {
       toast.error(err?.message || 'Error al subir la foto');
     } finally {
       setUploadingAvatar(false);
       if (avatarInputRef.current) avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleThemeChange = async (newTheme: string) => {
+    setTheme(newTheme);
+    if (!user) return;
+    try {
+      const { data: existing } = await supabase
+        .from('clinic_settings')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (existing) {
+        await supabase.from('clinic_settings').update({ theme: newTheme }).eq('user_id', user.id);
+      } else {
+        await supabase.from('clinic_settings').insert({ user_id: user.id, theme: newTheme });
+      }
+    } catch (err) {
+      console.error('Error guardando tema:', err);
     }
   };
 
@@ -301,9 +322,9 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div className="flex items-center gap-6">
                 <div className="relative">
-                  {extendedProfile?.avatar_url ? (
+                  {(avatarUrl || extendedProfile?.avatar_url) ? (
                     <img
-                      src={extendedProfile.avatar_url}
+                      src={avatarUrl || extendedProfile?.avatar_url || ''}
                       alt="Foto de perfil"
                       className="w-24 h-24 rounded-full object-cover border"
                     />
@@ -493,7 +514,7 @@ export default function SettingsPage() {
                   ].map(option => (
                     <button
                       key={option.value}
-                      onClick={() => setTheme(option.value)}
+                      onClick={() => handleThemeChange(option.value)}
                       className={`px-4 py-2 rounded-lg border ${
                         theme === option.value
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
