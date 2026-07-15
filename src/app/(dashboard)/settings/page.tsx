@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
+import { useTheme } from 'next-themes';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -65,7 +66,9 @@ export default function SettingsPage() {
     reminders: true
   });
 
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>('system');
+  const { theme, setTheme } = useTheme();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   useEffect(() => {
     if (extendedProfile) {
@@ -102,11 +105,37 @@ export default function SettingsPage() {
           setNotifications(data.notification_prefs as typeof notifications);
         }
         if (data.theme) {
-          setTheme(data.theme as typeof theme);
+          setTheme(data.theme);
         }
       }
     } catch (err: any) {
       console.error('Error fetching clinic settings:', err);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error('La imagen no debe pasar de 2MB'); return; }
+    setUploadingAvatar(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `${user.id}/avatar-${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+      const { error: profErr } = await supabase
+        .from('profiles')
+        .update({ avatar_url: urlData.publicUrl })
+        .eq('id', user.id);
+      if (profErr) throw profErr;
+      setExtendedProfile((prev: any) => ({ ...prev, avatar_url: urlData.publicUrl }));
+      toast.success('Foto actualizada');
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al subir la foto');
+    } finally {
+      setUploadingAvatar(false);
+      if (avatarInputRef.current) avatarInputRef.current.value = '';
     }
   };
 
@@ -157,7 +186,7 @@ export default function SettingsPage() {
         clinic_email: clinicData.email || null,
         clinic_rfc: clinicData.tax_id || null,
         notification_prefs: notifications,
-        theme
+        theme: theme || 'system'
       };
 
       if (settings) {
@@ -272,10 +301,29 @@ export default function SettingsPage() {
             <div className="space-y-6">
               <div className="flex items-center gap-6">
                 <div className="relative">
-                  <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
-                    {extendedProfile?.full_name?.charAt(0) || 'U'}
-                  </div>
-                  <button className="absolute bottom-0 right-0 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border shadow flex items-center justify-center">
+                  {extendedProfile?.avatar_url ? (
+                    <img
+                      src={extendedProfile.avatar_url}
+                      alt="Foto de perfil"
+                      className="w-24 h-24 rounded-full object-cover border"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white text-3xl font-bold">
+                      {extendedProfile?.full_name?.charAt(0) || 'U'}
+                    </div>
+                  )}
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="hidden"
+                    onChange={handleAvatarUpload}
+                  />
+                  <button
+                    onClick={() => avatarInputRef.current?.click()}
+                    disabled={uploadingAvatar}
+                    className="absolute bottom-0 right-0 w-8 h-8 bg-white dark:bg-slate-800 rounded-full border shadow flex items-center justify-center hover:bg-slate-50 disabled:opacity-50"
+                  >
                     <Camera className="w-4 h-4 text-slate-600" />
                   </button>
                 </div>
@@ -445,7 +493,7 @@ export default function SettingsPage() {
                   ].map(option => (
                     <button
                       key={option.value}
-                      onClick={() => setTheme(option.value as typeof theme)}
+                      onClick={() => setTheme(option.value)}
                       className={`px-4 py-2 rounded-lg border ${
                         theme === option.value
                           ? 'border-blue-500 bg-blue-50 text-blue-700'
