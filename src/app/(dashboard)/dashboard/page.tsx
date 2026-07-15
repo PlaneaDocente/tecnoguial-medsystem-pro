@@ -248,7 +248,7 @@ function PatientsEvolutionChart({
             <p className="text-sm">Sin datos suficientes</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
             <LineChart
               data={data}
               margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
@@ -317,7 +317,7 @@ function ConsultationsTypeChart({
             <p className="text-sm">Sin datos suficientes</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
             <PieChart>
               <Pie
                 data={data}
