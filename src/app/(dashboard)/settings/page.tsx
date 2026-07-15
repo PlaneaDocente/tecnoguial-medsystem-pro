@@ -51,6 +51,7 @@ export default function SettingsPage() {
     bio: ''
   });
 
+  const [activeTab, setActiveTab] = useState('profile');
   const [clinicData, setClinicData] = useState({
     clinic_name: '',
     address: '',
@@ -92,10 +93,10 @@ export default function SettingsPage() {
         setSettings(data);
         setClinicData({
           clinic_name: data.clinic_name || '',
-          address: data.address || '',
-          phone: data.phone || '',
-          email: data.email || '',
-          tax_id: data.tax_id || ''
+          address: data.clinic_address || '',
+          phone: data.clinic_phone || '',
+          email: data.clinic_email || '',
+          tax_id: data.clinic_rfc || ''
         });
         if (data.notification_prefs) {
           setNotifications(data.notification_prefs as typeof notifications);
@@ -150,11 +151,11 @@ export default function SettingsPage() {
 
     try {
       const payload = {
-        clinic_name: clinicData.clinic_name,
-        address: clinicData.address,
-        phone: clinicData.phone,
-        email: clinicData.email,
-        tax_id: clinicData.tax_id,
+        clinic_name: clinicData.clinic_name || null,
+        clinic_address: clinicData.address || null,
+        clinic_phone: clinicData.phone || null,
+        clinic_email: clinicData.email || null,
+        clinic_rfc: clinicData.tax_id || null,
         notification_prefs: notifications,
         theme
       };
@@ -245,7 +246,12 @@ export default function SettingsPage() {
               ].map(item => (
                 <button
                   key={item.id}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    activeTab === item.id
+                      ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
                 >
                   <item.icon className="w-4 h-4" />
                   {item.label}
@@ -256,6 +262,7 @@ export default function SettingsPage() {
         </div>
 
         <div className="lg:col-span-3 space-y-6">
+          {activeTab === 'profile' && (
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <User className="w-5 h-5" />
@@ -327,7 +334,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </Card>
+          )}
 
+          {activeTab === 'clinic' && (
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Settings className="w-5 h-5" />
@@ -384,7 +393,9 @@ export default function SettingsPage() {
               </Button>
             </div>
           </Card>
+          )}
 
+          {activeTab === 'notifications' && (
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Bell className="w-5 h-5" />
@@ -414,7 +425,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </Card>
+          )}
 
+          {activeTab === 'appearance' && (
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Palette className="w-5 h-5" />
@@ -446,7 +459,9 @@ export default function SettingsPage() {
               </div>
             </div>
           </Card>
+          )}
 
+          {activeTab === 'data' && (
           <Card className="p-6">
             <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-6 flex items-center gap-2">
               <Download className="w-5 h-5" />
@@ -466,6 +481,7 @@ export default function SettingsPage() {
               </div>
             </div>
           </Card>
+          )}
         </div>
       </div>
     </div>
