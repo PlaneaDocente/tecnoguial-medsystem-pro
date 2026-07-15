@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
@@ -43,6 +43,9 @@ export default function PrescriptionsPage() {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [doctorSignature, setDoctorSignature] = useState<string | null>(null);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const signatureCanvasRef = useRef<HTMLCanvasElement>(null);
+  const isDrawingRef = useRef(false);
   const [doctorLicense, setDoctorLicense] = useState<string>('');
 
   const [prescriptionItems, setPrescriptionItems] = useState<PrescriptionItemForm[]>([
@@ -139,6 +142,70 @@ export default function PrescriptionsPage() {
       };
       return updated;
     });
+  };
+
+  // ---- Firma digital (canvas) ----
+  const getCanvasPos = (e: React.MouseEvent | React.TouchEvent) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    return {
+      x: (clientX - rect.left) * (canvas.width / rect.width),
+      y: (clientY - rect.top) * (canvas.height / rect.height),
+    };
+  };
+
+  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    const canvas = signatureCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx) return;
+    isDrawingRef.current = true;
+    const { x, y } = getCanvasPos(e);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    if (!isDrawingRef.current) return;
+    const canvas = signatureCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = getCanvasPos(e);
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  };
+
+  const stopDrawing = () => { isDrawingRef.current = false; };
+
+  const clearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (ctx && canvas) ctx.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const saveSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // Verificar que no este vacio
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let hasInk = false;
+    for (let i = 3; i < pixels.length; i += 4) {
+      if (pixels[i] > 0) { hasInk = true; break; }
+    }
+    if (!hasInk) { toast.error('Dibuja tu firma primero'); return; }
+    setDoctorSignature(canvas.toDataURL('image/png'));
+    setShowSignatureModal(false);
+    toast.success('Firma guardada');
   };
 
   const handleGeneratePrescription = async () => {
@@ -484,7 +551,7 @@ export default function PrescriptionsPage() {
                     </div>
                   </div>
                 ) : (
-                  <Button variant="outline" onClick={() => toast.info('Función de firma digital en desarrollo')} className="w-full">
+                  <Button variant="outline" onClick={() => setShowSignatureModal(true)} className="w-full">
                     <FileText className="w-4 h-4 mr-2" />
                     Dibujar Firma Digital
                   </Button>
@@ -549,6 +616,41 @@ export default function PrescriptionsPage() {
           </div>
         )}
       </Card>
+      {showSignatureModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-lg w-full">
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Dibuja tu Firma</h3>
+              <button onClick={() => setShowSignatureModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <p className="text-sm text-slate-500">Dibuja tu firma con el mouse o el dedo dentro del recuadro.</p>
+              <canvas
+                ref={signatureCanvasRef}
+                width={500}
+                height={200}
+                className="w-full border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg bg-white cursor-crosshair touch-none"
+                onMouseDown={startDrawing}
+                onMouseMove={draw}
+                onMouseUp={stopDrawing}
+                onMouseLeave={stopDrawing}
+                onTouchStart={startDrawing}
+                onTouchMove={draw}
+                onTouchEnd={stopDrawing}
+              />
+              <div className="flex gap-2 justify-between">
+                <Button variant="outline" onClick={clearSignature}>Limpiar</Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setShowSignatureModal(false)}>Cancelar</Button>
+                  <Button onClick={saveSignature}>Guardar Firma</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
