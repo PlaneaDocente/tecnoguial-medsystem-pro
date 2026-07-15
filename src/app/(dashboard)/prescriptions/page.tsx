@@ -36,6 +36,7 @@ export default function PrescriptionsPage() {
   const { user } = useAuth();
   const [patients, setPatients] = useState<Patient[]>([]);
   const [medications, setMedications] = useState<Medication[]>([]);
+  const [prescriptionHistory, setPrescriptionHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
@@ -61,9 +62,14 @@ export default function PrescriptionsPage() {
     setError('');
 
     try {
-      const [patientsRes, medsRes] = await Promise.all([
+      const [patientsRes, medsRes, historyRes] = await Promise.all([
         supabase.from('patients').select('*').eq('user_id', user.id).order('last_name'),
-        supabase.from('medications_catalog').select('*').eq('is_active', true).order('generic_name')
+        supabase.from('medications_catalog').select('*').eq('is_active', true).order('generic_name'),
+        supabase.from('prescriptions')
+          .select('*, patient:patients(id, first_name, last_name), prescription_items(*)')
+          .eq('user_id', user.id)
+          .order('prescription_date', { ascending: false })
+          .limit(50)
       ]);
 
       if (patientsRes.error) throw patientsRes.error;
@@ -71,6 +77,7 @@ export default function PrescriptionsPage() {
 
       setPatients(patientsRes.data || []);
       setMedications(medsRes.data || []);
+      if (!historyRes.error) setPrescriptionHistory(historyRes.data || []);
     } catch (err: any) {
       console.error('Error fetching data:', err);
       setError(err?.message || 'Error al cargar datos');
@@ -219,6 +226,7 @@ export default function PrescriptionsPage() {
         { medication_id: '', medication_name: '', dosage: '', frequency: '', duration: '', route: 'oral', observations: '' }
       ]);
       toast.success('Receta generada exitosamente');
+      fetchData();
     } catch (err: any) {
       console.error('Error generating prescription:', err);
       toast.error(err?.message || 'Error al generar receta');
@@ -498,18 +506,48 @@ export default function PrescriptionsPage() {
       )}
 
       <Card className="p-6">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Pill className="w-6 h-6 text-blue-600" />
+        <h3 className="font-semibold text-slate-900 dark:text-white mb-4">Historial de Recetas</h3>
+        {prescriptionHistory.length === 0 ? (
+          <div className="text-center py-8 text-slate-500">
+            <Pill className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+            <p className="text-sm">Aun no hay recetas generadas</p>
           </div>
-          <div>
-            <h3 className="font-semibold text-slate-900 dark:text-white">Recetas Medicas Digitales</h3>
-            <p className="text-sm text-slate-500 mt-1">
-              Crea recetas medicas profesionales con busqueda de medicamentos del catalogo,
-              generacion automatica de PDF y la opcion de agregar tu firma digital para validez legal.
-            </p>
+        ) : (
+          <div className="space-y-3">
+            {prescriptionHistory.map((pres: any) => (
+              <div key={pres.id} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-medium text-slate-900 dark:text-white">
+                      {pres.patient ? `${pres.patient.first_name || ''} ${pres.patient.last_name || ''}`.trim() : 'Paciente'}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {new Date(pres.prescription_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                    {pres.prescription_items && pres.prescription_items.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        {pres.prescription_items.map((item: any) => (
+                          <p key={item.id} className="text-sm text-slate-600 dark:text-slate-300">
+                            {item.medication_name}
+                            {item.dosage ? ` - ${item.dosage}` : ''}
+                            {item.frequency ? ` - ${item.frequency}` : ''}
+                            {item.duration ? ` - ${item.duration}` : ''}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {pres.notes && (
+                      <p className="text-xs text-slate-400 mt-1">{pres.notes}</p>
+                    )}
+                  </div>
+                  <Badge variant={pres.status === 'active' ? 'default' : 'secondary'}>
+                    {pres.status === 'active' ? 'Activa' : pres.status}
+                  </Badge>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
       </Card>
     </div>
   );
