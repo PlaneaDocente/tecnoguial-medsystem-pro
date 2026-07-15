@@ -176,7 +176,7 @@ export default function PrescriptionsPage() {
           patient_id: selectedPatient.id,
           prescription_date: new Date().toISOString(),
           status: 'active',
-          notes: prescriptions.map(p => p.observations).filter(Boolean).join('; ') || null,
+          notes: prescriptionItems.map(p => p.observations).filter(Boolean).join('; ') || null,
         })
         .select()
         .single();
@@ -184,12 +184,12 @@ export default function PrescriptionsPage() {
       if (presError) throw presError;
 
       if (newPrescription) {
-        const itemsToInsert = prescriptions.map(p => ({
+        const itemsToInsert = prescriptionItems.filter(p => p.medication_name).map(p => ({
           prescription_id: newPrescription.id,
           medication_name: p.medication_name,
-          dosage: p.dosage,
-          frequency: p.frequency,
-          duration: p.duration,
+          dosage: p.dosage || null,
+          frequency: p.frequency || null,
+          duration: p.duration || null,
           instructions: [p.route ? `Via: ${p.route}` : '', p.observations || ''].filter(Boolean).join(' - ') || null,
         }));
         const { error: itemsError } = await supabase.from('prescription_items').insert(itemsToInsert);
