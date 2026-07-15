@@ -422,9 +422,9 @@ export default function AIAssistantPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Asistente IA</h1>
+        <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Asistente Clínico</h1>
         <p className="text-slate-500 dark:text-slate-400 mt-1">
-          Herramientas de inteligencia artificial para tu práctica médica
+          Herramientas de apoyo basadas en tu catálogo médico
         </p>
       </div>
 
@@ -434,7 +434,7 @@ export default function AIAssistantPage() {
           <div>
             <p className="text-sm font-medium text-amber-800 dark:text-amber-400">Aviso Importante</p>
             <p className="text-xs text-amber-700 dark:text-amber-500 mt-1">
-              Las sugerencias de inteligencia artificial son auxiliares y no sustituyen el criterio médico profesional.
+              Las sugerencias se basan en coincidencias con tu catálogo y son auxiliares; no sustituyen el criterio médico profesional.
               Siempre verifica y valida la información antes de tomar decisiones clínicas.
             </p>
           </div>
