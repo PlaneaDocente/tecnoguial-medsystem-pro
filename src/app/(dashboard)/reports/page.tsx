@@ -32,7 +32,7 @@ import {
   Cell
 } from 'recharts';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { toast } from 'sonner';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
@@ -219,7 +219,7 @@ export default function ReportsPage() {
           new Date(p.created_at).toLocaleDateString('es-ES')
         ]);
 
-        (doc as any).autoTable({
+        autoTable(doc, {
           startY: 100,
           head: [['Nombre', 'Telefono', 'Tipo Sangre', 'Fecha Registro']],
           body: tableData,
