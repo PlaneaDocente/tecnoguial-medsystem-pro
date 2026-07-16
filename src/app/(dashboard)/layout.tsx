@@ -36,7 +36,7 @@ const menuItems = [
   { href: '/billing', label: 'Facturación', icon: CreditCard },
   { href: '/reports', label: 'Reportes', icon: BarChart3 },
   { href: '/ai-assistant', label: 'Asistente Clinico', icon: Bot },
-  { href: '/chat', label: 'Chat', icon: MessageSquare },
+  { href: '/chat', label: 'Notas', icon: MessageSquare },
   { href: '/settings', label: 'Configuración', icon: Settings },
 ];
 

@@ -10,14 +10,17 @@ import {
   MessageSquare,
   Send,
   Search,
-  ArrowLeft
+  ArrowLeft,
+  Plus,
+  X,
+  Phone
 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import type { Conversation, Patient, Message } from '@/lib/types';
 
 type ConversationWithPatient = Conversation & {
-  patient?: Pick<Patient, 'id' | 'first_name' | 'last_name'> | null;
+  patient?: Pick<Patient, 'id' | 'first_name' | 'last_name' | 'phone'> | null;
 };
 
 export default function ChatPage() {
@@ -30,6 +33,9 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [patientsList, setPatientsList] = useState<any[]>([]);
+  const [creating, setCreating] = useState(false);
 
   const fetchConversations = useCallback(async () => {
     if (!user) return;
@@ -39,7 +45,7 @@ export default function ChatPage() {
     try {
       const { data, error: queryError } = await supabase
         .from('conversations')
-        .select('*, patient:patients(id, first_name, last_name)')
+        .select('*, patient:patients(id, first_name, last_name, phone)')
         .eq('user_id', user.id)
         .order('last_message_at', { ascending: false });
 
@@ -129,6 +135,51 @@ export default function ChatPage() {
     return new Date(date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const openNewModal = async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from('patients')
+      .select('id, first_name, last_name, phone')
+      .eq('user_id', user.id)
+      .order('last_name');
+    setPatientsList(data || []);
+    setShowNewModal(true);
+  };
+
+  const handleCreateConversation = async (patientId: string) => {
+    if (!user) return;
+    setCreating(true);
+    try {
+      const existing = conversations.find(c => c.patient_id === patientId);
+      if (existing) {
+        setSelectedConversation(existing);
+        setShowNewModal(false);
+        return;
+      }
+      const { data, error: insErr } = await supabase
+        .from('conversations')
+        .insert({ user_id: user.id, patient_id: patientId, last_message_at: new Date().toISOString() })
+        .select('*, patient:patients(id, first_name, last_name, phone)')
+        .single();
+      if (insErr) throw insErr;
+      toast.success('Nota creada');
+      setShowNewModal(false);
+      await fetchConversations();
+      if (data) setSelectedConversation(data as ConversationWithPatient);
+    } catch (err: any) {
+      toast.error(err?.message || 'Error al crear');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openWhatsApp = (phone?: string | null) => {
+    if (!phone) { toast.error('Este paciente no tiene telefono registrado'); return; }
+    const clean = phone.replace(/\D/g, '');
+    if (!clean) { toast.error('Telefono invalido'); return; }
+    window.open(`https://wa.me/${clean}`, '_blank');
+  };
+
   const formatDate = (date: string) => {
     const d = new Date(date);
     const today = new Date();
@@ -155,9 +206,13 @@ export default function ChatPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Mensajes</h1>
-          <p className="text-slate-500 dark:text-slate-400 mt-1">Comunicación con pacientes</p>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Notas de Pacientes</h1>
+          <p className="text-slate-500 dark:text-slate-400 mt-1">Notas internas privadas por paciente</p>
         </div>
+        <Button onClick={openNewModal} className="gap-2">
+          <Plus className="w-4 h-4" />
+          Nueva Nota
+        </Button>
       </div>
 
       {error && (
@@ -179,7 +234,7 @@ export default function ChatPage() {
               {filteredConversations.length === 0 ? (
                 <div className="p-8 text-center">
                   <MessageSquare className="w-12 h-12 mx-auto text-slate-300 mb-3" aria-hidden="true" />
-                  <p className="text-sm text-slate-500">{search.trim() ? 'No se encontraron resultados' : 'No hay conversaciones'}</p>
+                  <p className="text-sm text-slate-500">{search.trim() ? 'No se encontraron resultados' : 'Aun no hay notas. Crea una con el boton Nueva Nota.'}</p>
                 </div>
               ) : (
                 filteredConversations.map(conv => (
@@ -213,10 +268,20 @@ export default function ChatPage() {
                   <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0">
                     {selectedConversation.patient?.first_name?.charAt(0) || ''}{selectedConversation.patient?.last_name?.charAt(0) || ''}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-slate-900 dark:text-white truncate">{selectedConversation.patient?.first_name || ''} {selectedConversation.patient?.last_name || ''}</p>
                     <Link href={`/patients/${selectedConversation.patient_id}`} className="text-xs text-blue-600 hover:underline">Ver expediente</Link>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => openWhatsApp(selectedConversation.patient?.phone)}
+                    className="gap-2 flex-shrink-0"
+                    title="Abrir WhatsApp con este paciente"
+                  >
+                    <Phone className="w-4 h-4 text-green-600" />
+                    <span className="hidden sm:inline">WhatsApp</span>
+                  </Button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -256,6 +321,40 @@ export default function ChatPage() {
           </div>
         </div>
       </Card>
+      {showNewModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowNewModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
+              <h3 className="font-semibold">Nueva Nota - Selecciona Paciente</h3>
+              <button onClick={() => setShowNewModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2">
+              {patientsList.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No tienes pacientes registrados</p>
+              ) : (
+                patientsList.map((p: any) => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleCreateConversation(p.id)}
+                    disabled={creating}
+                    className="w-full p-3 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg text-left disabled:opacity-50"
+                  >
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center text-white font-semibold flex-shrink-0">
+                      {p.first_name?.charAt(0) || ''}{p.last_name?.charAt(0) || ''}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-slate-900 dark:text-white truncate">{p.first_name || ''} {p.last_name || ''}</p>
+                      {p.phone && <p className="text-xs text-slate-500">{p.phone}</p>}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
