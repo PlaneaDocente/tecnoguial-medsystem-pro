@@ -289,9 +289,10 @@ export default function BillingPage() {
                 <Button
                   variant={plan.popular ? 'default' : 'outline'}
                   className="w-full"
-                  disabled={isCurrentPlan}
+                  disabled
+                  title="Los pagos se activaran cuando el sistema este en produccion con dominio propio"
                 >
-                  {isCurrentPlan ? 'Plan Actual' : plan.id === 'basic' || subscription ? 'Cambiar Plan' : 'Suscribirse'}
+                  {isCurrentPlan ? 'Plan Actual' : 'Proximamente'}
                 </Button>
               </Card>
             );
