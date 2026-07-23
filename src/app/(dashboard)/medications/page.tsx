@@ -33,10 +33,14 @@ export default function MedicationsPage() {
   const [search, setSearch] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMedication, setSelectedMedication] = useState<Medication | null>(null);
+  const pageSize = 12;
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [medForm, setMedForm] = useState({ generic_name: '', active_ingredient: '', description: '' });
-  const pageSize = 12;
+  const [medForm, setMedForm] = useState({
+    generic_name: '', active_ingredient: '', brand_names: '', pharmacological_group: '',
+    dosage_forms: '', routes: '', indications: '', contraindications: '',
+    side_effects: '', precautions: '', interactions: '', storage: '', description: ''
+  });
 
   useEffect(() => {
     fetchMedications();
@@ -89,20 +93,39 @@ export default function MedicationsPage() {
     );
   }
 
+  const toArray = (val: string) => val.split(',').map(v => v.trim()).filter(Boolean);
+
   const handleAddMedication = async () => {
-    if (!medForm.generic_name.trim()) { toast.error('Ingresa el nombre'); return; }
+    if (!medForm.generic_name.trim()) { toast.error('Ingresa el nombre generico'); return; }
     setSaving(true);
     try {
+      const brands = toArray(medForm.brand_names);
+      const forms = toArray(medForm.dosage_forms);
+      const routesArr = toArray(medForm.routes);
       const { error } = await supabase.from('medications_catalog').insert({
         generic_name: medForm.generic_name.trim(),
         active_ingredient: medForm.active_ingredient.trim() || null,
+        brand_names: brands.length ? brands : null,
+        pharmacological_group: medForm.pharmacological_group.trim() || null,
+        dosage_forms: forms.length ? forms : null,
+        routes: routesArr.length ? routesArr : null,
+        indications: medForm.indications.trim() || null,
+        contraindications: medForm.contraindications.trim() || null,
+        side_effects: medForm.side_effects.trim() || null,
+        precautions: medForm.precautions.trim() || null,
+        interactions: medForm.interactions.trim() || null,
+        storage: medForm.storage.trim() || null,
         description: medForm.description.trim() || null,
         is_active: true,
       });
       if (error) throw error;
       toast.success('Medicamento agregado');
       setShowAddModal(false);
-      setMedForm({ generic_name: '', active_ingredient: '', description: '' });
+      setMedForm({
+        generic_name: '', active_ingredient: '', brand_names: '', pharmacological_group: '',
+        dosage_forms: '', routes: '', indications: '', contraindications: '',
+        side_effects: '', precautions: '', interactions: '', storage: '', description: ''
+      });
       fetchMedications();
     } catch (err: any) {
       toast.error(err?.message || 'Error al guardar');
@@ -334,26 +357,104 @@ export default function MedicationsPage() {
         </DialogContent>
       </Dialog>
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowAddModal(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700">
-              <h3 className="font-semibold">Nuevo Medicamento</h3>
-              <button onClick={() => setShowAddModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"><X className="w-5 h-5" /></button>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto" onClick={() => setShowAddModal(false)}>
+          <div className="bg-white dark:bg-slate-900 rounded-xl max-w-2xl w-full my-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b dark:border-slate-700 sticky top-0 bg-white dark:bg-slate-900 rounded-t-xl">
+              <h3 className="font-semibold text-lg">Nuevo Medicamento</h3>
+              <button onClick={() => setShowAddModal(false)} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Nombre *</label>
-                <Input value={medForm.generic_name} onChange={(e) => setMedForm({ ...medForm, generic_name: e.target.value })} placeholder="Ej. Amoxicilina" />
+            <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nombre genérico *</label>
+                  <Input value={medForm.generic_name} onChange={(e) => setMedForm({ ...medForm, generic_name: e.target.value })} placeholder="Ej. Amoxicilina" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Principio activo</label>
+                  <Input value={medForm.active_ingredient} onChange={(e) => setMedForm({ ...medForm, active_ingredient: e.target.value })} placeholder="Ej. Amoxicilina trihidratada" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Principio activo / presentación</label>
-                <Input value={medForm.active_ingredient} onChange={(e) => setMedForm({ ...medForm, active_ingredient: e.target.value })} placeholder="Ej. Amoxicilina 500mg" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nombres comerciales</label>
+                  <Input value={medForm.brand_names} onChange={(e) => setMedForm({ ...medForm, brand_names: e.target.value })} placeholder="Amoxil, Trimox" />
+                  <p className="text-xs text-slate-400 mt-1">Separados por coma</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Grupo farmacológico</label>
+                  <Input value={medForm.pharmacological_group} onChange={(e) => setMedForm({ ...medForm, pharmacological_group: e.target.value })} placeholder="Antibiótico Penicilina" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Descripción</label>
-                <Input value={medForm.description} onChange={(e) => setMedForm({ ...medForm, description: e.target.value })} placeholder="Ej. Antibiótico" />
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Formas farmacéuticas</label>
+                  <Input value={medForm.dosage_forms} onChange={(e) => setMedForm({ ...medForm, dosage_forms: e.target.value })} placeholder="Cápsula, Suspensión, Tableta" />
+                  <p className="text-xs text-slate-400 mt-1">Separadas por coma</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Vías de administración</label>
+                  <Input value={medForm.routes} onChange={(e) => setMedForm({ ...medForm, routes: e.target.value })} placeholder="Oral, IV, Rectal" />
+                  <p className="text-xs text-slate-400 mt-1">Separadas por coma</p>
+                </div>
               </div>
-              <div className="flex gap-2 justify-end">
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Indicaciones</label>
+                <textarea
+                  className="w-full min-h-[70px] px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                  value={medForm.indications}
+                  onChange={(e) => setMedForm({ ...medForm, indications: e.target.value })}
+                  placeholder="Infecciones bacterianas sensibles"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Contraindicaciones</label>
+                <textarea
+                  className="w-full min-h-[70px] px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                  value={medForm.contraindications}
+                  onChange={(e) => setMedForm({ ...medForm, contraindications: e.target.value })}
+                  placeholder="Alergia a penicilinas"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">Efectos adversos</label>
+                <textarea
+                  className="w-full min-h-[70px] px-3 py-2 rounded-md border border-slate-200 dark:border-slate-700 bg-transparent text-sm"
+                  value={medForm.side_effects}
+                  onChange={(e) => setMedForm({ ...medForm, side_effects: e.target.value })}
+                  placeholder="Diarrea, rash, náusea"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Precauciones</label>
+                  <Input value={medForm.precautions} onChange={(e) => setMedForm({ ...medForm, precautions: e.target.value })} placeholder="Insuficiencia renal" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Interacciones</label>
+                  <Input value={medForm.interactions} onChange={(e) => setMedForm({ ...medForm, interactions: e.target.value })} placeholder="Anticoagulantes orales" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Almacenamiento</label>
+                  <Input value={medForm.storage} onChange={(e) => setMedForm({ ...medForm, storage: e.target.value })} placeholder="Lugar fresco y seco" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Descripción</label>
+                  <Input value={medForm.description} onChange={(e) => setMedForm({ ...medForm, description: e.target.value })} placeholder="Nota breve" />
+                </div>
+              </div>
+
+              <div className="flex gap-2 justify-end pt-2 border-t dark:border-slate-700">
                 <Button variant="outline" onClick={() => setShowAddModal(false)}>Cancelar</Button>
                 <Button onClick={handleAddMedication} disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
               </div>
