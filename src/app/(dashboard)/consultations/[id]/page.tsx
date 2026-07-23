@@ -7,7 +7,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Calendar, Clock, FileText, User, AlertCircle, Printer, Phone } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, FileText, User, AlertCircle, Printer, Phone, Lock, FilePlus2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 
@@ -20,12 +20,21 @@ type ConsultationWithPatient = {
   status: string;
   consultation_date: string;
   patient_id: string | null;
+  parent_consultation_id: string | null;
   patient?: {
     first_name: string | null;
     last_name: string | null;
     phone: string | null;
     blood_type: string | null;
   } | null;
+};
+
+type Adenda = {
+  id: string;
+  type: string;
+  chief_complaint: string | null;
+  notes: string | null;
+  consultation_date: string;
 };
 
 export default function ConsultationDetailPage() {
@@ -35,6 +44,7 @@ export default function ConsultationDetailPage() {
   const consultationId = params.id as string;
 
   const [consultation, setConsultation] = useState<ConsultationWithPatient | null>(null);
+  const [adendas, setAdendas] = useState<Adenda[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -61,6 +71,14 @@ export default function ConsultationDetailPage() {
         setError('Consulta no encontrada');
       } else {
         setConsultation(data as ConsultationWithPatient);
+
+        const { data: adendasData } = await supabase
+          .from('consultations')
+          .select('id, type, chief_complaint, notes, consultation_date')
+          .eq('parent_consultation_id', consultationId)
+          .order('consultation_date', { ascending: true });
+
+        setAdendas(adendasData || []);
       }
     } catch (err: any) {
       console.error('Error fetching consultation:', err);
@@ -126,7 +144,9 @@ export default function ConsultationDetailPage() {
             <ArrowLeft className="w-5 h-5 text-slate-600 dark:text-slate-400" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">Detalle de Consulta</h1>
+            <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+              {consultation.parent_consultation_id ? 'Detalle de Adenda' : 'Detalle de Consulta'}
+            </h1>
             <p className="text-slate-500 dark:text-slate-400 text-sm mt-1">
               {new Date(consultation.consultation_date).toLocaleDateString('es-ES', {
                 weekday: 'long',
@@ -139,11 +159,43 @@ export default function ConsultationDetailPage() {
             </p>
           </div>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => window.print()}>
-          <Printer className="w-4 h-4" />
-          Imprimir
-        </Button>
+        <div className="flex gap-2">
+          {consultation.status === 'completed' && !consultation.parent_consultation_id && (
+            <Link href={`/consultations/new?patientId=${consultation.patient_id || ''}&parentId=${consultation.id}`}>
+              <Button variant="outline" className="gap-2">
+                <FilePlus2 className="w-4 h-4" />
+                Agregar Adenda
+              </Button>
+            </Link>
+          )}
+          <Button variant="outline" className="gap-2" onClick={() => window.print()}>
+            <Printer className="w-4 h-4" />
+            Imprimir
+          </Button>
+        </div>
       </div>
+
+      {consultation.parent_consultation_id && (
+        <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-3">
+          <FilePlus2 className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-blue-700 dark:text-blue-400">
+            Esta nota es una adenda de otra consulta.{' '}
+            <Link href={`/consultations/${consultation.parent_consultation_id}`} className="underline font-medium">
+              Ver consulta original
+            </Link>
+          </p>
+        </div>
+      )}
+
+      {consultation.status === 'completed' && (
+        <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-3">
+          <Lock className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            Registro clínico cerrado e inalterable (NOM-004-SSA3-2012). No puede editarse ni eliminarse;
+            las correcciones o aclaraciones se registran mediante una adenda.
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
@@ -187,6 +239,36 @@ export default function ConsultationDetailPage() {
               </div>
             )}
           </Card>
+
+          {!consultation.parent_consultation_id && adendas.length > 0 && (
+            <Card className="p-6">
+              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <FilePlus2 className="w-4 h-4" />
+                Adendas ({adendas.length})
+              </h3>
+              <div className="space-y-3">
+                {adendas.map((adenda) => (
+                  <Link key={adenda.id} href={`/consultations/${adenda.id}`} className="block">
+                    <div className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-sm font-medium text-slate-900 dark:text-white">
+                          {adenda.chief_complaint || 'Adenda'}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {new Date(adenda.consultation_date).toLocaleDateString('es-ES', {
+                            day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                          })}
+                        </span>
+                      </div>
+                      {adenda.notes && (
+                        <p className="text-sm text-slate-600 dark:text-slate-400 line-clamp-2">{adenda.notes}</p>
+                      )}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </Card>
+          )}
         </div>
 
         <div className="space-y-6">
