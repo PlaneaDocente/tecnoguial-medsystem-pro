@@ -33,10 +33,12 @@ type ExtendedProfile = {
   specialty?: string | null;
   license_number?: string | null;
   bio?: string | null;
+  avatar_url?: string | null;
+  signature_url?: string | null;
 };
 
 export default function SettingsPage() {
-  const { user, profile } = useAuth();
+  const { user, profile, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [settings, setSettings] = useState<ClinicSettings | null>(null);
@@ -184,6 +186,7 @@ export default function SettingsPage() {
       if (updateError) throw updateError;
 
       toast.success('Perfil actualizado correctamente');
+      await refreshProfile();
     } catch (err: any) {
       console.error('Error updating profile:', err);
       const msg = err?.message || 'Error al actualizar perfil';
