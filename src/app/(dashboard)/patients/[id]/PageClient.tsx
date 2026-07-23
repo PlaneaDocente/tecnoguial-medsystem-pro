@@ -26,6 +26,7 @@ import {
   Download,
   File,
   Trash,
+  Pencil,
   Image as ImageIcon
 } from 'lucide-react';
 import Link from 'next/link';
@@ -373,6 +374,12 @@ export default function PatientDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Link href={`/patients/${patient.id}/edit`}>
+            <Button variant="outline" className="gap-2">
+              <Pencil className="w-4 h-4" />
+              Editar
+            </Button>
+          </Link>
           <Button variant="outline" onClick={handleExportPDF} className="gap-2">
             <Download className="w-4 h-4" />
             Exportar PDF
