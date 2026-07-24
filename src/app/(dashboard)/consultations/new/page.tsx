@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
@@ -10,6 +10,12 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, FilePlus2 } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
+
+type PatientOption = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
 
 export default function NewConsultationPage() {
   const { user } = useAuth();
@@ -21,18 +27,49 @@ export default function NewConsultationPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [patients, setPatients] = useState<PatientOption[]>([]);
+  const [loadingPatients, setLoadingPatients] = useState(true);
   const [patientId, setPatientId] = useState(preselectedPatientId);
   const [type, setType] = useState(isAdenda ? 'seguimiento' : 'general');
   const [chiefComplaint, setChiefComplaint] = useState('');
   const [notes, setNotes] = useState('');
 
+  useEffect(() => {
+    const fetchPatients = async () => {
+      if (!user) return;
+      try {
+        const { data, error: fetchError } = await supabase
+          .from('patients')
+          .select('id, first_name, last_name')
+          .eq('user_id', user.id)
+          .order('last_name', { ascending: true });
+
+        if (fetchError) throw fetchError;
+        setPatients(data || []);
+      } catch (err: any) {
+        console.error('Error loading patients:', err);
+        toast.error('No se pudo cargar la lista de pacientes');
+      } finally {
+        setLoadingPatients(false);
+      }
+    };
+
+    fetchPatients();
+  }, [user]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+
     if (!user) {
       setError('Debes iniciar sesión');
       toast.error('Debes iniciar sesión');
+      return;
+    }
+
+    if (!patientId) {
+      setError('Selecciona el paciente de la consulta');
+      toast.error('Selecciona el paciente de la consulta');
       return;
     }
 
@@ -49,7 +86,7 @@ export default function NewConsultationPage() {
         .from('consultations')
         .insert({
           user_id: user.id,
-          patient_id: patientId.trim() || null,
+          patient_id: patientId,
           parent_consultation_id: parentId || null,
           type,
           chief_complaint: chiefComplaint.trim() || null,
@@ -75,6 +112,9 @@ export default function NewConsultationPage() {
       setLoading(false);
     }
   };
+
+  const patientLabel = (p: PatientOption) =>
+    `${p.last_name || ''}${p.last_name && p.first_name ? ', ' : ''}${p.first_name || ''}`.trim() || 'Sin nombre';
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -104,8 +144,33 @@ export default function NewConsultationPage() {
       <Card className="p-6">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1">ID Paciente (opcional)</label>
-            <Input value={patientId} onChange={(e) => setPatientId(e.target.value)} placeholder="UUID del paciente" />
+            <label className="block text-sm font-medium mb-1">Paciente *</label>
+            <select
+              value={patientId}
+              onChange={(e) => setPatientId(e.target.value)}
+              disabled={loadingPatients || isAdenda}
+              className="w-full px-4 py-2 border rounded-lg bg-white dark:bg-slate-800 disabled:opacity-60"
+            >
+              <option value="">
+                {loadingPatients ? 'Cargando pacientes...' : 'Seleccionar paciente...'}
+              </option>
+              {patients.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {patientLabel(p)}
+                </option>
+              ))}
+            </select>
+            {!loadingPatients && patients.length === 0 && (
+              <p className="text-xs text-slate-500 mt-1">
+                No tienes pacientes registrados.{' '}
+                <Link href="/patients/new" className="text-blue-600 underline">Registrar paciente</Link>
+              </p>
+            )}
+            {isAdenda && (
+              <p className="text-xs text-slate-500 mt-1">
+                El paciente se hereda de la consulta original y no puede cambiarse.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Tipo</label>
