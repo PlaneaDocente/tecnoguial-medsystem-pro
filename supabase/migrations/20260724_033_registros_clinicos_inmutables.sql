@@ -26,7 +26,7 @@ ALTER TABLE public.consultations
   ADD COLUMN IF NOT EXISTS closed_at timestamptz;
 
 UPDATE public.consultations
-SET closed_at = COALESCE(closed_at, updated_at, created_at)
+SET closed_at = COALESCE(closed_at, created_at)
 WHERE status = 'completed' AND closed_at IS NULL;
 
 -- ------------------------------------------------------------
