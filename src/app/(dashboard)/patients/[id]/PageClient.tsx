@@ -90,10 +90,10 @@ export default function PatientDetailPage() {
         setPatient(patientData);
 
         const [allergiesData, antecedentsData, diseasesData, filesData, consultationsData] = await Promise.all([
-          supabase.from('patient_allergies').select('*').eq('patient_id', patientId).order('created_at'),
-          supabase.from('patient_antecedents').select('*').eq('patient_id', patientId).order('created_at'),
-          supabase.from('patient_chronic_diseases').select('*').eq('patient_id', patientId).order('created_at'),
-          supabase.from('patient_files').select('*').eq('patient_id', patientId).order('created_at'),
+          supabase.from('patient_allergies').select('*').eq('patient_id', patientId).is('deleted_at', null).order('created_at'),
+          supabase.from('patient_antecedents').select('*').eq('patient_id', patientId).is('deleted_at', null).order('created_at'),
+          supabase.from('patient_chronic_diseases').select('*').eq('patient_id', patientId).is('deleted_at', null).order('created_at'),
+          supabase.from('patient_files').select('*').eq('patient_id', patientId).is('deleted_at', null).order('created_at'),
           supabase.from('consultations').select('*').eq('patient_id', patientId).order('consultation_date', { ascending: false }).limit(10)
         ]);
 
@@ -189,19 +189,35 @@ export default function PatientDetailPage() {
     }
   };
 
+  // Baja logica: los registros clinicos no se borran (NOM-004-SSA3-2012).
+  // Se solicita motivo, que queda asentado junto con la fecha y el autor.
+  const promptBajaMotivo = (que: string): string | null => {
+    const motivo = window.prompt(
+      `Dar de baja ${que}.\n\nEl registro no se elimina: deja de mostrarse pero se conserva en el expediente y en la bitacora (NOM-004-SSA3-2012).\n\nIndica el motivo:`
+    );
+    if (motivo === null) return null;
+    if (!motivo.trim()) {
+      toast.error('El motivo es obligatorio para dar de baja un registro clinico');
+      return null;
+    }
+    return motivo.trim();
+  };
+
   const handleDeleteFile = async (file: PatientFile) => {
-    if (!confirm('¿Eliminar este archivo?')) return;
+    const motivo = promptBajaMotivo('archivo');
+    if (motivo === null) return;
 
     try {
-      const success = await deletePatientFile(file.id, file.storage_path);
-      if (success) {
-        toast.success('Archivo eliminado');
-        fetchPatientData();
-      } else {
-        throw new Error('Error al eliminar');
-      }
+      // Baja logica: el archivo deja de mostrarse pero se conserva
+      // (NOM-004: minimo 5 anos desde el ultimo acto medico).
+      const { error } = await supabase.from('patient_files')
+        .update({ deleted_at: new Date().toISOString(), deleted_reason: motivo })
+        .eq('id', file.id);
+      if (error) throw error;
+      toast.success('Archivo dado de baja');
+      fetchPatientData();
     } catch (error: any) {
-      toast.error(error?.message || 'Error al eliminar archivo');
+      toast.error(error?.message || 'Error al dar de baja el archivo');
     }
   };
 
@@ -227,11 +243,14 @@ export default function PatientDetailPage() {
   };
 
   const handleDeleteAllergy = async (id: string) => {
-    if (!confirm('¿Eliminar esta alergia?')) return;
+    const motivo = promptBajaMotivo('alergia');
+    if (motivo === null) return;
     try {
-      const { error } = await supabase.from('patient_allergies').delete().eq('id', id);
+      const { error } = await supabase.from('patient_allergies')
+        .update({ deleted_at: new Date().toISOString(), deleted_reason: motivo })
+        .eq('id', id);
       if (error) throw error;
-      toast.success('Alergia eliminada');
+      toast.success('Alergia dada de baja');
       fetchPatientData();
     } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
   };
@@ -258,11 +277,14 @@ export default function PatientDetailPage() {
   };
 
   const handleDeleteAntecedent = async (id: string) => {
-    if (!confirm('¿Eliminar este antecedente?')) return;
+    const motivo = promptBajaMotivo('antecedente');
+    if (motivo === null) return;
     try {
-      const { error } = await supabase.from('patient_antecedents').delete().eq('id', id);
+      const { error } = await supabase.from('patient_antecedents')
+        .update({ deleted_at: new Date().toISOString(), deleted_reason: motivo })
+        .eq('id', id);
       if (error) throw error;
-      toast.success('Antecedente eliminado');
+      toast.success('Antecedente dado de baja');
       fetchPatientData();
     } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
   };
@@ -289,11 +311,14 @@ export default function PatientDetailPage() {
   };
 
   const handleDeleteDisease = async (id: string) => {
-    if (!confirm('¿Eliminar esta enfermedad?')) return;
+    const motivo = promptBajaMotivo('enfermedad cronica');
+    if (motivo === null) return;
     try {
-      const { error } = await supabase.from('patient_chronic_diseases').delete().eq('id', id);
+      const { error } = await supabase.from('patient_chronic_diseases')
+        .update({ deleted_at: new Date().toISOString(), deleted_reason: motivo })
+        .eq('id', id);
       if (error) throw error;
-      toast.success('Enfermedad eliminada');
+      toast.success('Enfermedad dada de baja');
       fetchPatientData();
     } catch (error: any) { toast.error(error?.message || 'Error al eliminar'); }
   };

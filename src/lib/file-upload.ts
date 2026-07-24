@@ -66,30 +66,24 @@ export async function uploadPatientFile(
 }
 
 export async function deletePatientFile(fileId: string, storagePath: string): Promise<boolean> {
+  // NOM-004-SSA3-2012: los archivos del expediente se conservan un minimo
+  // de 5 anos desde el ultimo acto medico. Por eso NO se borran del Storage
+  // ni de la base: se marcan como dados de baja (deleted_at) y dejan de
+  // mostrarse en la aplicacion.
   try {
-    // Delete from storage
-    const { error: storageError } = await supabase.storage
-      .from('patient-files')
-      .remove([storagePath]);
-
-    if (storageError) {
-      console.error('Storage delete error:', storageError);
-    }
-
-    // Delete from database
     const { error: dbError } = await supabase
       .from('patient_files')
-      .delete()
+      .update({ deleted_at: new Date().toISOString() })
       .eq('id', fileId);
 
     if (dbError) {
-      console.error('Database delete error:', dbError);
+      console.error('Soft delete error:', dbError);
       return false;
     }
 
     return true;
   } catch (error) {
-    console.error('Delete failed:', error);
+    console.error('Soft delete failed:', error);
     return false;
   }
 }
@@ -99,6 +93,7 @@ export async function getPatientFiles(patientId: string) {
     .from('patient_files')
     .select('*')
     .eq('patient_id', patientId)
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   if (error) {
