@@ -53,7 +53,23 @@ export default function ConsultationsPage() {
 
       if (search.trim()) {
         const q = search.trim();
-        query = query.or(`patient.first_name.ilike.%${q}%,patient.last_name.ilike.%${q}%,chief_complaint.ilike.%${q}%`);
+
+        // PostgREST no admite filtrar tablas embebidas (patient.*) dentro de or().
+        // Se resuelve en dos pasos: primero los pacientes que coinciden,
+        // luego se filtran las consultas por esos IDs o por el motivo.
+        const { data: matchedPatients } = await supabase
+          .from('patients')
+          .select('id')
+          .eq('user_id', user.id)
+          .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`);
+
+        const patientIds = (matchedPatients || []).map((p: { id: string }) => p.id);
+
+        if (patientIds.length > 0) {
+          query = query.or(`chief_complaint.ilike.%${q}%,patient_id.in.(${patientIds.join(',')})`);
+        } else {
+          query = query.ilike('chief_complaint', `%${q}%`);
+        }
       }
 
       const from = (currentPage - 1) * pageSize;
